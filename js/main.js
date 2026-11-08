@@ -175,14 +175,18 @@
     }
     function est() { var p = offlinePlan(a, opts()); d.q('#ofEst').textContent = '≈ ' + p.urls.length.toLocaleString('fr-FR') + ' tuiles, environ ' + U.fmtBytes(p.estKB * 1024) + ' (estimation).'; }
     d.body.addEventListener('change', est); setTimeout(est, 30);
-    if (d.q('#ofDel')) d.q('#ofDel').onclick = function () { C.removeOffline(C.docKey(a)).then(function () { C.closeDlg(1); C.refreshTab('carte'); }); };
+    if (d.q('#ofDel')) d.q('#ofDel').onclick = function () {
+      C.confirmDlg('Supprimer la copie hors ligne de « ' + U.baseName(a.name) + ' » ? (le fichier lui-même n\'est pas touché)', 'Supprimer', true).then(function (y) {
+        if (y) C.removeOffline(C.docKey(a)).then(function () { C.closeDlg(1); C.refreshTab('carte'); U.toast('Copie hors ligne supprimée'); });
+      });
+    };
     function go() {
       if (!U.isOnline()) { U.toast('Il faut du réseau pour préparer le hors ligne'); return; }
       var o = opts(), p = offlinePlan(a, o);
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
       if (C.active.vigicrues) C.refreshVigicrues();
       d.q('#ofGo').disabled = true;
-      dl = { cancel: false };
+      dl = { cancel: false }; U.keepAwake(true);
       d.q('#ofProg').innerHTML = '<div class="prog"><div id="dlBar"></div></div><p class="muted" id="dlTxt">Démarrage…</p><button class="btn danger" id="dlStop">Arrêter</button>';
       d.q('#dlStop').onclick = function () { dl.cancel = true; };
       C.download(C.docKey(a), { name: a.name, layers: o.items }, p.urls, function (done, total, bytes, failed) {
@@ -190,10 +194,10 @@
         bar.style.width = Math.round(done / total * 100) + '%';
         t.textContent = done.toLocaleString('fr-FR') + ' / ' + total.toLocaleString('fr-FR') + ' — ' + U.fmtBytes(bytes) + (failed ? ' — ' + failed + ' échecs' : '') + '. Garde l\'appli ouverte.';
       }, function () { return dl && dl.cancel; }).then(function (res) {
-        dl = null;
+        dl = null; U.keepAwake(false);
         U.toast(res.cancelled ? 'Préparation arrêtée (le déjà reçu est gardé)' : '« ' + U.baseName(a.name) + ' » prêt hors ligne (' + U.fmtBytes(res.bytes) + ')', 5000);
         C.closeDlg(1); C.refreshTab('carte');
-      }).catch(function (e) { dl = null; U.toast('Échec : ' + (e.message || e), 5000); });
+      }).catch(function (e) { dl = null; U.keepAwake(false); U.toast('Échec : ' + (e.message || e), 5000); });
     }
     d.q('#ofGo').onclick = go;
     if (preset) { d.q('#ofAll').checked = !!preset.all; est(); go(); }
@@ -204,7 +208,10 @@
     var d = C.openDlg({ title: 'Chantiers prêts hors ligne', body: Object.keys(reg).map(function (k) {
       return '<div class="list-item"><span class="grow"><span class="t">' + esc(U.baseName(reg[k].name)) + '</span><span class="s">' + U.fmtDate(reg[k].date, true) + ' — ' + U.fmtBytes(reg[k].bytes) + '</span></span><button class="btn danger" data-del="' + esc(k) + '">Supprimer</button></div>';
     }).join('') + '<p class="muted" id="olSt"></p>' });
-    d.qa('[data-del]').forEach(function (b) { b.onclick = function () { C.removeOffline(b.getAttribute('data-del')).then(function () { C.closeDlg(1); offlineList(); C.refreshTab('carte'); }); }; });
+    d.qa('[data-del]').forEach(function (b) { b.onclick = function () {
+      var k = b.getAttribute('data-del');
+      C.confirmDlg('Supprimer la copie hors ligne de « ' + U.baseName(reg[k].name) + ' » ?', 'Supprimer', true).then(function (y) { if (y) C.removeOffline(k).then(function () { C.closeDlg(1); offlineList(); C.refreshTab('carte'); }); });
+    }; });
     if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(function (e) { d.q('#olSt').textContent = 'Espace utilisé par l\'appli : ' + U.fmtBytes(e.usage || 0); });
   }
 
@@ -222,7 +229,12 @@
           '<div class="row2" style="margin-top:8px"><button class="btn primary" data-get="' + i + '">⬇ Télécharger</button><button class="btn danger" data-rm="' + i + '">Supprimer</button></div></div>';
       }).join('') : '<div class="empty">Aucun paquet pour l\'instant.</div>';
       d.qa('[data-get]').forEach(function (b) { b.onclick = function () { C.closeDlg(1); applyPaquet(list[+b.getAttribute('data-get')]); }; });
-      d.qa('[data-rm]').forEach(function (b) { b.onclick = function () { C.postPorte('paquetSupprimer', { nom: list[+b.getAttribute('data-rm')].nom }).then(function (j) { draw(j.paquets); }); }; });
+      d.qa('[data-rm]').forEach(function (b) { b.onclick = function () {
+        var nom = list[+b.getAttribute('data-rm')].nom;
+        C.confirmDlg('Supprimer le paquet « ' + nom + ' » ? (les fichiers du Drive ne sont pas touchés)', 'Supprimer', true).then(function (y) {
+          if (y) C.postPorte('paquetSupprimer', { nom: nom }).then(function (j) { draw(j.paquets); }).catch(function (e) { U.toast(e.message || String(e)); });
+        });
+      }; });
     }
     d.q('#pqNew').onclick = function () {
       var a = C.activeDoc();
@@ -297,24 +309,56 @@
   }
 
   /* ======================= Position ======================= */
-  var me = null, meAcc = null;
-  $('btnLocate').addEventListener('click', function () {
-    if (!navigator.geolocation) { U.toast('Position indisponible'); return; }
-    U.toast('Recherche de ta position…', 2000);
-    navigator.geolocation.getCurrentPosition(function (pos) {
-      var ll = [pos.coords.latitude, pos.coords.longitude];
-      if (me) { map.removeLayer(me); map.removeLayer(meAcc); }
+  // 1er appui : centre sur toi et te suit ; tu bouges la carte → le suivi s'arrête (la position reste affichée) ; appui suivant : recentre / arrête.
+  var me = null, meAcc = null, watch = null, follow = false, firstFix = true;
+  function setLocBtn() { var b = $('btnLocate'); b.classList.toggle('on', watch != null); b.classList.toggle('follow', follow); b.title = watch == null ? 'Ma position' : follow ? 'Arrêter le suivi' : 'Recentrer sur ma position'; }
+  function stopLocate() {
+    if (watch != null) navigator.geolocation.clearWatch(watch);
+    watch = null; follow = false;
+    if (me) { map.removeLayer(me); map.removeLayer(meAcc); me = meAcc = null; }
+    setLocBtn();
+  }
+  function onPos(pos) {
+    var ll = [pos.coords.latitude, pos.coords.longitude];
+    if (!me) {
       meAcc = L.circle(ll, { radius: pos.coords.accuracy, color: '#1a73e8', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(map);
       me = L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1, interactive: false }).addTo(map);
-      map.setView(ll, Math.max(map.getZoom(), 16));
-    }, function () { U.toast('Position indisponible (autorise la localisation pour l\'appli)', 4000); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+    } else { me.setLatLng(ll); meAcc.setLatLng(ll).setRadius(pos.coords.accuracy); }
+    if (follow) { if (firstFix) map.setView(ll, Math.max(map.getZoom(), 16)); else map.panTo(ll, { animate: true }); }
+    firstFix = false;
+  }
+  $('btnLocate').addEventListener('click', function () {
+    if (!navigator.geolocation) { U.toast('Position indisponible sur cet appareil'); return; }
+    if (watch != null && follow) { stopLocate(); U.toast('Suivi de position arrêté', 1500); return; }
+    if (watch != null) { follow = true; setLocBtn(); if (me) map.setView(me.getLatLng(), Math.max(map.getZoom(), 16)); return; }
+    follow = true; firstFix = true; setLocBtn();
+    U.toast('Recherche de ta position…', 2000);
+    watch = navigator.geolocation.watchPosition(onPos, function (err) {
+      if (err && err.code === 1) { stopLocate(); U.toast('Position refusée : autorise la localisation pour l\'appli', 4500); }
+      else if (!me) U.toast('Position introuvable pour l\'instant (ciel dégagé, GPS activé ?)', 4000);
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 });
   });
+  map.on('dragstart', function () { if (follow) { follow = false; setLocBtn(); } });
 
   /* ======================= Démarrage ======================= */
   C.setBase(U.store('base') || 'ortho');
   Object.keys(C.active).forEach(function (id) { C.setActive(id, true); });
   C.updateLayerCount();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+  if ('serviceWorker' in navigator) {
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      // vérifie s'il existe une nouvelle version à chaque retour sur l'appli
+      document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
+    }).catch(function () {});
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) { hadController = true; return; }
+      var t = $('toast');
+      t.innerHTML = 'Nouvelle version de l\'appli installée. <button class="btn" id="upd" style="margin-left:8px;background:#fff;color:#16202a;padding:5px 10px">Recharger</button>';
+      t.style.display = 'block'; clearTimeout(U.toast._t);
+      $('upd').onclick = function () { location.reload(); };
+      U.toast._t = setTimeout(function () { t.style.display = 'none'; }, 20000);
+    });
+  }
   if (U.isDesktop()) C.openPanel(U.store('tab') || 'outils');
   window.addEventListener('resize', U.debounce(function () { if (U.isDesktop()) C.openPanel(); }, 300));
 

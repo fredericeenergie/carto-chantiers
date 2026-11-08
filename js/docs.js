@@ -5,6 +5,7 @@
 
   C.docs = [];
   var fileLayers = L.layerGroup().addTo(map);
+  var vecR = L.canvas({ padding: 0.5, tolerance: L.Browser.mobile ? 10 : 5 });
 
   /* ======================= Modèle ======================= */
   function fromParsed(res) {
@@ -75,8 +76,10 @@
     C.docs.push(doc);
     if (doc.role === 'chantier' && (!C.activeDoc() || !quiet)) U.store('activeDoc', doc.uid);
     render(doc); saveOpenList(); updateChip();
+    refreshTabsSoon();
     return doc;
   }
+  var refreshTabsSoon = U.debounce(function () { C.refreshTab('outils'); C.refreshTab('export'); }, 150);
   C.openDriveFile = function (id, opts) {
     opts = opts || {};
     if (!opts.quiet) U.busy(true, 'Ouverture du fichier…');
@@ -135,18 +138,49 @@
       }).catch(function () {});
     });
   }
-  C.openLocalFile = function () {
-    return U.pickFile('.kmz,.kml,.gpx,.geojson,.json').then(function (file) {
-      if (!file) return;
-      U.busy(true, 'Lecture de « ' + file.name + ' »…');
-      return C.formats.readMapFile(file).then(function (r) {
-        var doc = newDoc({ name: r.name, source: 'local', role: 'chantier', images: r.images, feats: C.parsePayload(r), parent: null });
-        addDoc(doc); persistLocal(doc); U.busy(false); fit(doc); askFolders(doc, true);
-        if (C.fiches) C.fiches.load(doc);
-        U.toast('Fichier de l\'appareil : enregistre une version pour le mettre sur le Drive', 4500);
-      }).catch(function (e) { U.busy(false); U.toast('Lecture impossible : ' + (e.message || e), 5000); });
+  function openOneLocal(file, many) {
+    U.busy(true, 'Lecture de « ' + file.name + ' »…');
+    return C.formats.readMapFile(file).then(function (r) {
+      var doc = newDoc({ name: r.name, source: 'local', role: 'chantier', images: r.images, feats: C.parsePayload(r), parent: null });
+      addDoc(doc); persistLocal(doc); U.busy(false);
+      if (!many) { fit(doc); askFolders(doc, true); }
+      if (C.fiches) C.fiches.load(doc);
+      return doc;
+    }).catch(function (e) { U.busy(false); U.toast('Lecture impossible de « ' + file.name + ' » : ' + (e.message || e), 5000); });
+  }
+  C.openLocalFiles = function (files) {
+    files = (files || []).filter(function (f) { return /\.(kmz|kml|gpx|geojson|json)$/i.test(f.name); });
+    if (!files.length) return Promise.resolve();
+    var chain = Promise.resolve(), last = null;
+    files.forEach(function (f) { chain = chain.then(function () { return openOneLocal(f, files.length > 1).then(function (d) { if (d) last = d; }); }); });
+    return chain.then(function () {
+      if (files.length > 1) fit(null);
+      if (last) U.toast(files.length > 1 ? files.length + ' fichiers ouverts depuis l\'appareil' : 'Fichier de l\'appareil : enregistre une version pour le mettre sur le Drive', 4500);
     });
   };
+  C.openLocalFile = function () {
+    return U.pickFiles('.kmz,.kml,.gpx,.geojson,.json').then(C.openLocalFiles);
+  };
+  /* Glisser-déposer sur l'ordinateur : cartes → ouvertes ; tableaux → import des fiches */
+  (function dropZone() {
+    var ov = document.createElement('div'); ov.id = 'dropOv'; ov.innerHTML = '<div>Dépose ici tes KMZ, KML, GPX, GeoJSON<br><span>ou un tableau CSV / Excel à importer</span></div>';
+    document.body.appendChild(ov);
+    var depth = 0;
+    function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
+    document.addEventListener('dragenter', function (e) { if (!hasFiles(e)) return; depth++; ov.classList.add('on'); e.preventDefault(); });
+    document.addEventListener('dragover', function (e) { if (hasFiles(e)) e.preventDefault(); });
+    document.addEventListener('dragleave', function () { depth = Math.max(0, depth - 1); if (!depth) ov.classList.remove('on'); });
+    document.addEventListener('drop', function (e) {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); depth = 0; ov.classList.remove('on');
+      var files = Array.prototype.slice.call(e.dataTransfer.files || []);
+      var maps = files.filter(function (f) { return /\.(kmz|kml|gpx|geojson|json)$/i.test(f.name); });
+      var tables = files.filter(function (f) { return /\.(csv|txt|xlsx|xls|ods)$/i.test(f.name); });
+      if (!maps.length && !tables.length) { U.toast('Format non reconnu : KMZ, KML, GPX, GeoJSON, CSV ou Excel'); return; }
+      C.closeDlg(2); C.closeDlg(1);
+      C.openLocalFiles(maps).then(function () { if (tables.length && C.fiches) C.fiches.importFile(tables[0], {}); });
+    });
+  })();
   C.newChantier = function () {
     return C.promptDlg('Nouveau chantier', 'Nom du chantier', '', 'Créer').then(function (n) {
       if (!n) return;
@@ -162,7 +196,7 @@
     if (doc.role === 'chantier') {
       var t = C.terrainOf(doc); if (t && !silent) { fileLayers.removeLayer(t.group); C.docs = C.docs.filter(function (d) { return d !== t; }); }
     }
-    saveOpenList(); updateChip(); clearSelection();
+    saveOpenList(); updateChip(); clearSelection(); refreshTabsSoon();
   }
   C.closeDoc = closeDoc;
 
@@ -210,10 +244,10 @@
       var s = f.style || {}, m;
       var terr = doc.role === 'terrain';
       if (f.kind === 'poly') {
-        m = L.polygon(f.coords, { interactive: terr, bubblingMouseEvents: false, color: s.line || (terr ? '#7b1fa2' : '#ffcc00'), weight: s.noOutline ? 0 : (s.width || 2), opacity: s.lineOp != null ? s.lineOp : 1,
+        m = L.polygon(f.coords, { renderer: vecR, interactive: terr, bubblingMouseEvents: false, color: s.line || (terr ? '#7b1fa2' : '#ffcc00'), weight: s.noOutline ? 0 : (s.width || 2), opacity: s.lineOp != null ? s.lineOp : 1,
           fillColor: s.fill || s.line || (terr ? '#ba68c8' : '#ffcc00'), fillOpacity: s.noFill ? 0 : (s.fillOp != null ? Math.min(s.fillOp, 0.5) : 0.2) });
       } else if (f.kind === 'line') {
-        m = L.polyline(f.coords, { interactive: terr, bubblingMouseEvents: false, color: s.line || (terr ? '#7b1fa2' : '#ff3b30'), weight: Math.max(2, s.width || 3), opacity: s.lineOp != null ? Math.max(s.lineOp, 0.6) : 0.9, dashArray: terr ? '6 5' : null });
+        m = L.polyline(f.coords, { renderer: vecR, interactive: terr, bubblingMouseEvents: false, color: s.line || (terr ? '#7b1fa2' : '#ff3b30'), weight: Math.max(2, s.width || 3), opacity: s.lineOp != null ? Math.max(s.lineOp, 0.6) : 0.9, dashArray: terr ? '6 5' : null });
       } else if (f.pylon && !terr) {
         m = L.marker(f.coords, { icon: L.divIcon({ className: pylonClass(doc, f), html: '<div>' + esc(f.pylon) + '</div>', iconSize: [0, 0] }), zIndexOffset: 1000, draggable: doc.editing });
       } else if (terr) {
@@ -224,7 +258,7 @@
         var ic = iconFor(doc, s.icon);
         m = ic ? L.marker(f.coords, { icon: ic, draggable: doc.editing })
                : (doc.editing ? L.marker(f.coords, { draggable: true, icon: L.divIcon({ className: 'pyl-ico edit', html: '<div style="background:#ffb300;min-width:14px;height:14px;padding:0"></div>', iconSize: [0, 0] }) })
-                  : L.circleMarker(f.coords, { radius: 6, color: '#fff', weight: 2, fillColor: s.iconColor || '#ffb300', fillOpacity: 1, bubblingMouseEvents: false }));
+                  : L.circleMarker(f.coords, { renderer: vecR, radius: 6, color: '#fff', weight: 2, fillColor: s.iconColor || '#ffb300', fillOpacity: 1, bubblingMouseEvents: false }));
         if (f.name) m.bindTooltip(esc(f.name), { permanent: true, direction: 'right', offset: [8, 0], className: 'pt-lbl' });
       }
       f._layer = m;
@@ -381,7 +415,6 @@
       }
       if (d.q('#brPick')) d.q('#brPick').onclick = function () { done = true; C.closeDlg(2); resolve({ id: cur.id, name: cur.name }); };
       if (d.q('#brNew')) d.q('#brNew').onclick = function () {
-        var n = window.prompt ? null : null;
         C.closeDlg(2);
         C.promptDlg('Nouveau dossier dans « ' + cur.name + ' »', 'Nom du dossier', '', 'Créer').then(function (nom) {
           if (!nom) { resolve(null); return; }
@@ -431,6 +464,8 @@
       d.qa('[data-i]').forEach(function (b) { b.onclick = function () { var p = pts[+b.getAttribute('data-i')]; C.closeDlg(1); select(p.doc, p.f, true); }; });
     }
     d.q('#pySearch').oninput = draw; draw();
+    d.q('#pySearch').onkeydown = function (e) { if (e.key === 'Enter') { var b = d.q('#pyList [data-i]'); if (b) b.click(); } };
+    if (U.isDesktop()) setTimeout(function () { d.q('#pySearch').focus(); }, 200);
   });
 
   /* ======================= Sélection et fiche « point » ======================= */
@@ -440,6 +475,7 @@
     if (target) { map.removeLayer(target); target = null; }
     if (selected && selected.f && selected.f._layer && selected.f._layer.getElement && selected.f._layer.getElement()) selected.f._layer.getElement().classList.remove('sel');
     selected = null;
+    $('pylName').textContent = '—';
     $('pointSheet').classList.remove('open');
   }
   C.clearSelection = clearSelection;
@@ -474,6 +510,15 @@
       '<div class="go"><a class="waze" target="_blank" rel="noopener" href="https://waze.com/ul?ll=' + encodeURIComponent(s) + '&navigate=yes">Waze</a>' +
       '<a class="gmaps" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(s) + '&travelmode=driving">Google Maps</a></div><div class="row2" id="ptActs"></div><div id="ptInfos"></div><div id="ptMeta" style="margin-top:10px"></div>';
     $('ptTitle').textContent = title; $('ptBody').innerHTML = html;
+    if (f && f.pylon && doc && doc.role !== 'terrain') {
+      var list = C.pylonsOf(doc), i = list.indexOf(f), pv = list[i - 1], nx = list[i + 1];
+      if (pv || nx) {
+        var nav = document.createElement('div'); nav.className = 'pnav';
+        nav.innerHTML = '<button class="btn" data-pn="-1"' + (pv ? '' : ' disabled') + '>◀ ' + (pv ? esc(pv.pylon) : '') + '</button><span class="muted small">' + (i + 1) + ' / ' + list.length + '</span><button class="btn" data-pn="1"' + (nx ? '' : ' disabled') + '>' + (nx ? esc(nx.pylon) : '') + ' ▶</button>';
+        $('ptBody').insertBefore(nav, $('ptBody').firstChild);
+        nav.querySelectorAll('[data-pn]').forEach(function (b) { b.onclick = function () { var g = list[i + +b.getAttribute('data-pn')]; if (g) select(doc, g, true); }; });
+      }
+    }
     var acts = [];
     if (f && f.pylon && doc.role !== 'terrain') acts.push(['fiche', '📋 Fiche pylône', 'primary']);
     if (f && doc.role === 'terrain') acts.push(['tedit', '✎ Modifier', 'primary']);
@@ -517,11 +562,18 @@
     return p.url ? '<a class="ph" target="_blank" rel="noopener" href="' + esc(p.url) + '" style="' + bg + '">' + inner + '</a>' : '<span class="ph" style="' + bg + '" title="En attente d\'envoi">' + inner + '</span>';
   }
   C.photoThumb = photoThumb;
+  // garde le point visible à côté de la fiche (en bas sur téléphone, à droite en paysage et sur ordinateur)
   function keepVisible(ll) {
-    var sh = $('pointSheet'); if (!sh.classList.contains('open') || U.isDesktop()) return;
-    var free = window.innerHeight - sh.offsetHeight;
-    var p = map.latLngToContainerPoint(ll), want = Math.max(110, free * 0.5);
-    if (p.y > free - 30 || p.y < 90) map.panBy([0, p.y - want], { animate: true });
+    var sh = $('pointSheet'); if (!sh.classList.contains('open')) return;
+    var r = sh.getBoundingClientRect(), m = map.getContainer().getBoundingClientRect();
+    var p = map.latLngToContainerPoint(ll), sx = p.x + m.left, sy = p.y + m.top;
+    if (r.left > m.left + 40) { // fiche à droite
+      var free = r.left - m.left, wantX = m.left + free / 2;
+      if (sx > r.left - 40 || sx < m.left + 40) map.panBy([sx - wantX, 0], { animate: true });
+    } else { // fiche en bas
+      var freeH = r.top - m.top, wantY = m.top + Math.max(110, freeH * 0.5);
+      if (sy > r.top - 30 || sy < m.top + 90) map.panBy([0, sy - wantY], { animate: true });
+    }
   }
   map.on('click', function (e) {
     if (C.mapClickHook && C.mapClickHook(e.latlng)) return;

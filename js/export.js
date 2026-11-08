@@ -57,7 +57,15 @@
     return out;
   }
   function near(samples, coords, limit) {
-    for (var i = 0; i < coords.length; i++) for (var j = 0; j < samples.length; j++) if (C.geo.dist(coords[i], samples[j]) <= limit) return true;
+    var dl = limit / 111000 * 1.05;
+    for (var i = 0; i < coords.length; i++) {
+      var c = coords[i], dlo = dl / Math.max(0.2, Math.cos(c[0] * Math.PI / 180));
+      for (var j = 0; j < samples.length; j++) {
+        var s = samples[j];
+        if (Math.abs(s[0] - c[0]) > dl || Math.abs(s[1] - c[1]) > dlo) continue;
+        if (C.geo.dist(c, s) <= limit) return true;
+      }
+    }
     return false;
   }
   function gjCoords(g) { // → liste de géométries internes {kind, coords}
@@ -81,6 +89,42 @@
     });
     return out;
   }
+  var MAXF = 5000;
+  function corridorCells(b, samples, sizeDeg) {
+    var cells = [], lat0 = (b.s + b.n) / 2, kx = Math.cos(lat0 * Math.PI / 180);
+    var dLon = sizeDeg / kx;
+    for (var la = b.s; la < b.n; la += sizeDeg) for (var lo = b.w; lo < b.e; lo += dLon) {
+      var c = { s: la, w: lo, n: Math.min(b.n, la + sizeDeg), e: Math.min(b.e, lo + dLon) };
+      var ctr = [(c.s + c.n) / 2, (c.w + c.e) / 2], half = C.geo.dist([c.s, c.w], [c.n, c.e]) / 2;
+      if (samples.some(function (p) { return C.geo.dist(p, ctr) <= BUFFER + half; })) cells.push(c);
+    }
+    return cells;
+  }
+  function getJSON(u) { return U.withTimeout(fetch(u, { mode: 'cors' }), 60000).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+  function fetchLayer(v, b, samples, onStep) {
+    return getJSON(v.url(b)).then(function (j) {
+      var fs = j.features || [];
+      if (fs.length < MAXF) return { feats: fs, partial: false };
+      // trop d'objets : on interroge le couloir par carreaux d'environ 1,5 km
+      var cells = corridorCells(b, samples, 0.0135).map(function (c) { return { c: c, d: 0 }; }), out = [], seen = {}, partial = false, i = 0, total = cells.length;
+      function worker() {
+        if (i >= cells.length) return Promise.resolve();
+        var job = cells[i++], c = job.c;
+        if (onStep) onStep(v.label + ' (' + Math.min(i, total) + '/' + total + ')');
+        return getJSON(v.url(c)).then(function (jj) {
+          var ff = jj.features || [];
+          if (ff.length >= MAXF && job.d < 3) { // carreau trop dense (ville) : découpé en quatre
+            var mLa = (c.s + c.n) / 2, mLo = (c.w + c.e) / 2;
+            [[c.s, c.w, mLa, mLo], [c.s, mLo, mLa, c.e], [mLa, c.w, c.n, mLo], [mLa, mLo, c.n, c.e]].forEach(function (q) { cells.push({ c: { s: q[0], w: q[1], n: q[2], e: q[3] }, d: job.d + 1 }); });
+            total += 4; return;
+          }
+          if (ff.length >= MAXF) partial = true;
+          ff.forEach(function (ft) { var k = ft.id || JSON.stringify(ft.geometry).slice(0, 200); if (!seen[k]) { seen[k] = 1; out.push(ft); } });
+        }).catch(function () { partial = true; }).then(worker);
+      }
+      return Promise.all([worker(), worker(), worker()]).then(function () { return { feats: out, partial: partial }; });
+    });
+  }
   C.fetchPublic = function (chantier, ids, onStep) {
     var seqs = C.geometryOf(asParsed(chantier)), b = C.bboxOf(seqs, BUFFER), samples = samplesOf(seqs);
     var feats = [], report = [];
@@ -88,9 +132,9 @@
     C.VECTORS.filter(function (v) { return ids.indexOf(v.id) >= 0; }).forEach(function (v) {
       chain = chain.then(function () {
         if (onStep) onStep(v.label);
-        return U.withTimeout(fetch(v.url(b), { mode: 'cors' }), 60000).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
+        return fetchLayer(v, b, samples, onStep).then(function (res) {
           var n = 0;
-          (j.features || []).forEach(function (ft) {
+          res.feats.forEach(function (ft) {
             gjCoords(ft.geometry).forEach(function (g) {
               if (!near(samples, flat(g), BUFFER)) return;
               var p = ft.properties || {}, name = v.name.map(function (k) { return p[k]; }).filter(Boolean)[0] || v.label;
@@ -99,7 +143,7 @@
               n++;
             });
           });
-          report.push(v.label + ' : ' + n);
+          report.push(v.label + ' : ' + n + (res.partial ? ' (incomplet)' : ''));
         }).catch(function (e) { report.push(v.label + ' : indisponible (' + (e.message || e) + ')'); });
       });
     });
@@ -161,8 +205,8 @@
   var defaultVec = { rte_aer: ['v_rte_aer'], rte_pyl: ['v_rte_pyl'], rte_sout: ['v_rte_sout'], rte_postes: ['v_rte_postes'], hta_aer: ['v_hta_aer'], hta_sout: ['v_hta_sout'], bt: ['v_bt_aer', 'v_bt_sout'], gaz_distri: ['v_grdf'], gaz_transport: ['v_gaz'], canal_autres: ['v_hydro', 'v_chim'], sncf_lignes: ['v_sncf'], sncf_pn: ['v_sncf_pn'] };
   C.tabs.export = function (el) {
     var a = C.activeDoc(), docs = C.docs.filter(function (d) { return d.role !== 'terrain'; });
-    var html = '<h3>Fichier de cartographie</h3>';
-    if (!docs.length) { el.innerHTML = html + '<p class="muted">Ouvre d\'abord un fichier.</p>' + extraBlocks(); wireExtra(el); return; }
+    var html = '<div id="exWrap"><h3>Fichier de cartographie</h3>';
+    if (!docs.length) { el.innerHTML = html + '<p class="muted">Ouvre d\'abord un fichier.</p></div>' + extraBlocks(); wireExtra(el); return; }
     var vecOn = {}; Object.keys(C.active).forEach(function (id) { (defaultVec[id] || []).forEach(function (v) { vecOn[v] = true; }); });
     html += '<div class="card" style="margin-top:0"><b>Couches à exporter</b>';
     docs.forEach(function (d, di) {
@@ -175,21 +219,25 @@
       if (t && t.feats.length) html += '<label class="check"><input type="checkbox" data-terrain="' + di + '" checked><span class="grow">Ajouts terrain<span class="hint">' + t.feats.length + ' élément(s), avec liens des photos</span></span></label>';
     });
     html += '<label class="check"><input type="checkbox" id="exFiches" checked><span class="grow">Joindre les fiches pylônes<span class="hint">Chaque pylône porte les champs de sa fiche</span></span></label>';
-    html += '<div class="muted" style="margin:12px 0 2px;font-weight:700">Réseaux publics — 1 km autour de « ' + esc(a ? U.baseName(a.name) : '') + ' »</div>' +
+    var nVec = C.VECTORS.filter(function (v) { return vecOn[v.id]; }).length;
+    html += '<div class="grp" id="exVecG" style="margin-top:8px"><button type="button"><span>Réseaux publics en tracés<span class="muted small" style="display:block;font-weight:400">1 km autour de « ' + esc(a ? U.baseName(a.name) : '') + ' » — pré-cochés selon tes calques</span></span><span class="n" id="exVecN"' + (nVec ? '' : ' hidden') + '>' + nVec + '</span><span class="chev">›</span></button><div class="items">' +
       C.VECTORS.map(function (v) { return '<label class="check"><input type="checkbox" data-vec="' + v.id + '"' + (vecOn[v.id] ? ' checked' : '') + '><span class="grow">' + esc(v.label) + '</span></label>'; }).join('') +
-      '<label class="check"><input type="checkbox" id="exCom"><span class="grow">Limites des communes traversées</span></label></div>';
-    html += '<div class="card"><b>Format</b><div class="seg" id="exFmt" style="margin-top:6px">' + FORMATS.map(function (f, i) { return '<button data-f="' + f[0] + '"' + (i === 0 ? ' class="on"' : '') + '>' + f[1].replace(' (AutoCAD)', '') + '</button>'; }).join('') + '</div>' +
-      '<p class="muted small" id="exFmtHint">Google Earth, avec styles et icônes.</p>' +
+      '<label class="check"><input type="checkbox" id="exCom"><span class="grow">Limites des communes traversées</span></label></div></div></div>';
+    var fmt0 = U.store('exFmt') || 'kmz';
+    html += '<div class="card"><b>Format</b><div class="seg" id="exFmt" style="margin-top:6px">' + FORMATS.map(function (f) { return '<button data-f="' + f[0] + '"' + (f[0] === fmt0 ? ' class="on"' : '') + '>' + f[1].replace(' (AutoCAD)', '') + '</button>'; }).join('') + '</div>' +
+      '<p class="muted small" id="exFmtHint"></p>' +
       '<label class="check"><input type="checkbox" id="exCsv" checked><span class="grow">+ Tableau CSV des pylônes<span class="hint">N°, GPS, Lambert 93, commune, statut, lien Waze</span></span></label>' +
       '<label class="check"><input type="checkbox" id="exCsvCom"><span class="grow">+ Liste des communes traversées (CSV)</span></label>' +
       '<label class="check"><input type="checkbox" id="exCsvTer"><span class="grow">+ Tableau des ajouts terrain (CSV)</span></label>' +
       '<label class="field"><span>Nom du fichier</span><input type="text" id="exName" value="' + esc((a ? U.baseName(a.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, '') : 'Export') + ' - export ' + U.isoDay()) + '"></label>' +
-      '<div class="row2"><button class="btn primary big" id="exGo">Exporter…</button></div></div>';
+      '</div><div class="sticky-foot"><button class="btn primary big" id="exGo">Exporter…</button></div></div>';
     html += extraBlocks();
     el.innerHTML = html;
     var hints = { kmz: 'Google Earth, avec styles et icônes.', kml: 'Google Earth / Maps, texte (sans icônes embarquées).', gpx: 'GPS de randonnée, Garmin… (points et traces).', geojson: 'SIG (QGIS…), applis web.', dxf: 'AutoCAD, en Lambert 93 (mètres), un calque par dossier.' };
-    var fmt = 'kmz';
-    el.querySelectorAll('#exFmt [data-f]').forEach(function (b) { b.onclick = function () { el.querySelectorAll('#exFmt [data-f]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on'); fmt = b.getAttribute('data-f'); $('exFmtHint').textContent = hints[fmt]; }; });
+    var fmt = fmt0; $('exFmtHint').textContent = hints[fmt];
+    el.querySelectorAll('#exFmt [data-f]').forEach(function (b) { b.onclick = function () { el.querySelectorAll('#exFmt [data-f]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on'); fmt = b.getAttribute('data-f'); U.store('exFmt', fmt); $('exFmtHint').textContent = hints[fmt]; }; });
+    var g = $('exVecG'); g.querySelector('button').onclick = function () { g.classList.toggle('open'); };
+    g.addEventListener('change', function () { var n = g.querySelectorAll('[data-vec]:checked').length; $('exVecN').textContent = n; $('exVecN').hidden = !n; });
     $('exGo').onclick = function () { runExport(el, docs, a, fmt); };
     wireExtra(el);
   };
@@ -240,6 +288,7 @@
     var extra = Promise.resolve({ feats: [], report: [] }), communes = Promise.resolve(null);
     if ((vecIds.length || wantCom) && !a) { U.toast('Choisis un chantier actif pour les réseaux et communes'); return; }
     if ((vecIds.length || wantCom) && !U.isOnline()) { U.toast('Réseaux publics et communes : nécessitent du réseau'); return; }
+    U.keepAwake(true);
     if (vecIds.length) { U.busy(true, 'Réseaux publics…'); extra = C.fetchPublic(a, vecIds, function (l) { U.busy(true, 'Téléchargement : ' + l + '…'); }); }
     extra.then(function (r) {
       feats = feats.concat(r.feats);
@@ -259,11 +308,11 @@
           if ($('exCsv').checked && a) files.push({ blob: new Blob([C.pylonCSV(a)], { type: 'text/csv' }), name: name + ' - pylônes.csv' });
           if ($('exCsvTer').checked && a) files.push({ blob: new Blob([C.terrainCSV(a)], { type: 'text/csv' }), name: name + ' - ajouts terrain.csv' });
           if ($('exCsvCom').checked && coms) files.push({ blob: new Blob([C.formats.toCSV([['Commune', 'Code INSEE', 'Département']].concat(coms.map(function (c) { return [c.nom, c.insee, c.dep]; })))], { type: 'text/csv' }), name: name + ' - communes.csv' });
-          U.busy(false);
+          U.busy(false); U.keepAwake(false);
           if (r.report.length) U.toast('Réseaux : ' + r.report.join(' · '), 7000);
           return C.choiceDlg(files.length > 1 ? files.length + ' fichiers prêts — où les mettre ?' : '« ' + files[0].name + ' » — où le mettre ?', C.destChoices()).then(function (v) { if (v) return C.deliver(files, { type: v }); });
         });
       });
-    }).catch(function (e) { U.busy(false); U.toast('Export impossible : ' + (e.message || e), 6000); });
+    }).catch(function (e) { U.busy(false); U.keepAwake(false); U.toast('Export impossible : ' + (e.message || e), 6000); });
   }
 })();

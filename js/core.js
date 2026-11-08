@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.1.0';
+  C.VERSION = 'v2.2.0';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Outils ======================= */
@@ -67,7 +67,37 @@
       inp.click();
     });
   };
-  U.isDesktop = function () { return window.matchMedia('(min-width: 900px)').matches; };
+  /* Photo : réduite à 2 560 px (JPEG) pour un envoi rapide depuis le terrain, avec vignette */
+  U.compressImage = function (file, max, q) {
+    max = max || 2560; q = q || 0.85;
+    return new Promise(function (ok) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var s = Math.min(1, max / Math.max(img.width, img.height)), w = Math.round(img.width * s), h = Math.round(img.height * s);
+        var cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        var ts = 240 / Math.max(w, h), tc = document.createElement('canvas'); tc.width = Math.round(w * ts); tc.height = Math.round(h * ts);
+        tc.getContext('2d').drawImage(cv, 0, 0, tc.width, tc.height);
+        var thumb = tc.toDataURL('image/jpeg', 0.7);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (b) {
+          var keep = b && (b.size < file.size || !/jpe?g/i.test(file.type)) ? b : file;
+          cv.width = cv.height = 0; ok({ blob: keep, thumb: thumb });
+        }, 'image/jpeg', q);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); ok({ blob: file, thumb: null }); };
+      img.src = url;
+    });
+  };
+  /* Écran gardé allumé pendant un long téléchargement ou une création de PDF */
+  var wake = { n: 0, s: null };
+  function wakeGet() { if (navigator.wakeLock && document.visibilityState === 'visible') navigator.wakeLock.request('screen').then(function (s) { wake.s = s; }).catch(function () {}); }
+  U.keepAwake = function (on) {
+    wake.n = Math.max(0, wake.n + (on ? 1 : -1));
+    if (wake.n && !wake.s) wakeGet();
+    if (!wake.n && wake.s) { wake.s.release().catch(function () {}); wake.s = null; }
+  };
+  document.addEventListener('visibilitychange', function () { if (wake.n && document.visibilityState === 'visible') { wake.s = null; wakeGet(); } });
+  U.isDesktop = function () { return window.matchMedia('(min-width: 900px) and (min-height: 561px)').matches; };
 
   /* ======================= Porte Drive ======================= */
   (function readSetupHash() {
@@ -97,7 +127,7 @@
   };
 
   /* ======================= Fenêtres ======================= */
-  var dlgClose = {};
+  var dlgClose = {}, dlgGuard = {};
   C.openDlg = function (o) {
     var lvl = o.level === 2 ? '2' : '';
     var el = $('dlg' + lvl);
@@ -108,8 +138,10 @@
     if (!lvl) { $('dlgHead').innerHTML = o.head || ''; }
     body.scrollTop = 0;
     dlgClose[lvl] = o.onClose || null;
+    dlgGuard[lvl] = o.guard || null;
     el.classList.add('open');
     $('scrim').style.display = 'block';
+    if (!lvl) dlgClose.point = $('pointSheet').classList.contains('open') || (dlgClose.point && $('dlg').classList.contains('open'));
     $('pointSheet').classList.remove('open');
     if (!U.isDesktop()) C.closePanel();
     return { el: el, body: body, foot: foot, q: function (sel) { return el.querySelector(sel); }, qa: function (sel) { return el.querySelectorAll(sel); } };
@@ -118,12 +150,24 @@
     var lvl = level === 2 ? '2' : '';
     var el = $('dlg' + lvl); if (!el.classList.contains('open')) return;
     el.classList.remove('open');
+    dlgGuard[lvl] = null;
     var cb = dlgClose[lvl]; dlgClose[lvl] = null; if (cb) cb();
+    // la fiche du point sélectionné réapparaît quand on referme la fenêtre ouverte par-dessus
+    if (!lvl && dlgClose.point) { dlgClose.point = false; if (C.selected && C.selected() && !$('dlg').classList.contains('open')) $('pointSheet').classList.add('open'); }
     if (!$('dlg').classList.contains('open') && !$('dlg2').classList.contains('open')) $('scrim').style.display = 'none';
   };
-  document.querySelector('[data-close]').addEventListener('click', function () { C.closeDlg(1); });
-  document.querySelector('[data-close2]').addEventListener('click', function () { C.closeDlg(2); });
-  $('scrim').addEventListener('click', function () { if ($('dlg2').classList.contains('open')) C.closeDlg(2); else C.closeDlg(1); });
+  // fermeture demandée par l'utilisateur (×, fond grisé, bouton retour, Échap, Annuler) : on protège la saisie en cours
+  C.requestClose = function (level) {
+    var lvl = level === 2 ? '2' : '';
+    var g = dlgGuard[lvl];
+    if (g && g()) {
+      return C.confirmDlg('Des informations ont été saisies et ne sont pas enregistrées. Les abandonner ?', 'Abandonner', true).then(function (y) { if (y) { dlgGuard[lvl] = null; C.closeDlg(level); } });
+    }
+    C.closeDlg(level); return Promise.resolve();
+  };
+  document.querySelector('[data-close]').addEventListener('click', function () { C.requestClose(1); });
+  document.querySelector('[data-close2]').addEventListener('click', function () { C.requestClose(2); });
+  $('scrim').addEventListener('click', function () { if ($('dlg2').classList.contains('open')) C.requestClose(2); else C.requestClose(1); });
   C.confirmDlg = function (msg, okLabel, danger) {
     return new Promise(function (ok) {
       var done = false;
@@ -156,6 +200,45 @@
       d.qa('[data-i]').forEach(function (b) { b.onclick = function () { done = true; C.closeDlg(2); ok(choices[+b.getAttribute('data-i')].v); }; });
     });
   };
+
+  /* ======================= Retour arrière et Échap ======================= */
+  // Le bouton « retour » du téléphone ferme d'abord la fenêtre ouverte, puis la fiche du point, puis le panneau.
+  C.closeTop = function () {
+    if ($('dlg2').classList.contains('open')) { C.requestClose(2); return true; }
+    if ($('dlg').classList.contains('open')) { C.requestClose(1); return true; }
+    if ($('busy').style.display === 'grid') return true;
+    if ($('pointSheet').classList.contains('open')) { C.clearSelection(); return true; }
+    if (!$('measureBar').hidden && C.tools) { C.tools.measure(false); return true; }
+    if (!$('drawBar').hidden && C.tools) { C.tools.cancelDraw(); return true; }
+    if (!U.isDesktop() && $('panel').classList.contains('open')) { C.closePanel(); return true; }
+    return false;
+  };
+  (function backButton() {
+    var pushed = false, ignore = 0, t = null;
+    function anyOpen() {
+      return $('dlg').classList.contains('open') || $('dlg2').classList.contains('open') || $('pointSheet').classList.contains('open') ||
+        !$('measureBar').hidden || !$('drawBar').hidden || (!U.isDesktop() && $('panel').classList.contains('open'));
+    }
+    function sync() {
+      t = null;
+      var open = anyOpen();
+      if (open && !pushed) { try { history.pushState({ carto: 1 }, ''); pushed = true; } catch (e) {} }
+      else if (!open && pushed) { pushed = false; ignore++; history.back(); }
+    }
+    function later() { if (!t) t = setTimeout(sync, 60); }
+    window.addEventListener('popstate', function () {
+      if (ignore) { ignore--; return; }
+      pushed = false;
+      C.closeTop();
+      later();
+    });
+    var mo = new MutationObserver(later);
+    ['dlg', 'dlg2', 'pointSheet', 'panel', 'measureBar', 'drawBar'].forEach(function (id) { mo.observe($(id), { attributes: true, attributeFilter: ['class', 'hidden'] }); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (C.closeTop()) e.preventDefault();
+    });
+  })();
 
   /* ======================= Panneau et onglets ======================= */
   C.tabs = {};
@@ -212,10 +295,21 @@
         }
         img.src = C.tileUrl(def, coords.z - dz, xx, yy);
       }
-      img.onload = function () { done(null, tile); };
+      var retried = false, finished = false, sharp = C.tileUrl(def, coords.z, coords.x, coords.y);
+      function fin() { if (!finished) { finished = true; done(null, tile); } }
+      img.onload = fin;
       img.onerror = function () {
+        if (!retried && dz === 0 && U.isOnline()) {
+          // réseau faible : on affiche l'agrandissement d'une tuile parente, puis on retente la tuile nette
+          retried = true;
+          setTimeout(function () {
+            var im2 = new Image(); if (def.kind !== 'xyz') im2.crossOrigin = 'anonymous';
+            im2.onload = function () { dz = 0; img.style.cssText = ''; img.src = sharp; };
+            im2.src = sharp;
+          }, 4000);
+        }
         if (dz < 5 && coords.z - dz - 1 >= minN) { dz++; load(); }
-        else { img.style.display = 'none'; done(null, tile); }
+        else { img.style.display = 'none'; fin(); }
       };
       load();
       return tile;
@@ -226,7 +320,7 @@
   var baseLayers = {};
   C.curBase = null;
   C.BASES.forEach(function (b) {
-    baseLayers[b.id] = new C.FallbackLayer(b.def, { maxZoom: 21, maxNativeZoom: b.def.native[1], zIndex: 1, attribution: C.shortSrc(b.src) });
+    baseLayers[b.id] = new C.FallbackLayer(b.def, { maxZoom: 21, maxNativeZoom: b.def.native[1], zIndex: 1, keepBuffer: 4, attribution: C.shortSrc(b.src) });
   });
   C.baseLayers = baseLayers;
   C.setBase = function (id) {
@@ -249,7 +343,7 @@
     if (it.special === 'rte_num') return [rteNumLayer];
     return it.defs.map(function (d, k) {
       return new C.FallbackLayer(d, {
-        maxZoom: 21, maxNativeZoom: d.native[1], minZoom: Math.max(it.minZoom || 0, d.native[0]),
+        maxZoom: 21, maxNativeZoom: d.native[1], minZoom: Math.max(it.minZoom || 0, d.native[0]), keepBuffer: 3,
         opacity: opac[it.id] != null ? opac[it.id] : (it.opacity || 1), zIndex: it.z * 4 + k, attribution: C.shortSrc(it.src)
       });
     });
@@ -442,7 +536,7 @@
       });
     } };
   function refreshVector(cfg) {
-    if (!active[cfg.id] || map.getZoom() < cfg.minZoom) return;
+    if (!active[cfg.id] || hidden[cfg.id] || map.getZoom() < cfg.minZoom) return;
     var b = map.getBounds(), z = 12;
     var t1 = map.project(b.getNorthWest(), z).divideBy(256).floor(), t2 = map.project(b.getSouthEast(), z).divideBy(256).floor();
     for (var x = t1.x; x <= t2.x; x++) for (var y = t1.y; y <= t2.y; y++) {
@@ -464,15 +558,16 @@
     var bbox = [pt.x - h, pt.y - h, pt.x + h, pt.y + h].map(function (v) { return v.toFixed(2); }).join(',');
     var jobs = [];
     Object.keys(active).forEach(function (id) {
-      var it = ITEMS[id]; if (!it.info) return;
+      var it = ITEMS[id]; if (!it.info || hidden[id] || !it.defs) return;
       it.defs.forEach(function (d) {
+        if (d.kind !== 'wms') return;
         var u = d.base + '?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&LAYERS=' + d.layers + '&QUERY_LAYERS=' + d.layers +
           '&STYLES=&CRS=EPSG:3857&BBOX=' + bbox + '&WIDTH=101&HEIGHT=101&I=50&J=50&INFO_FORMAT=application/json&FEATURE_COUNT=5&BUFFER=12';
         jobs.push(U.withTimeout(fetch(u, { mode: 'cors' }), 15000).then(function (r) { return r.json(); })
           .then(function (j) { return { it: it, feats: (j && j.features) || [] }; }).catch(function () { return { it: it, feats: [] }; }));
       });
     });
-    if (!jobs.length) return Promise.resolve('<p class="muted">Allume un calque réseau, SNCF, PLU ou servitudes pour l\'interroger.</p>');
+    if (!jobs.length) return Promise.resolve('<p class="muted">Allume un calque interrogeable (réseaux, SNCF, PLU, servitudes, bâtiments…) pour l\'interroger.</p>');
     return Promise.all(jobs).then(function (rs) {
       var html = [];
       rs.forEach(function (r) { r.feats.forEach(function (f) { html.push('<div class="card"><h4>' + U.esc(r.it.label) + '</h4><div>' + C.propsHtml(f.properties || {}) + '</div></div>'); }); });

@@ -5,6 +5,16 @@
   var P = C.pdf = {};
   var R = 6378137, DPI = 150;
 
+  // logo inscrit dans sa boîte sans déformation
+  function logoAt(pdf, meta, x, y, bw, bh) {
+    if (!meta.logo) return;
+    var r = meta.logoRatio || 2, w = bw, h = bw / r; if (h > bh) { h = bh; w = bh * r; }
+    try { pdf.addImage(meta.logo, 'PNG', x + (bw - w) / 2, y + (bh - h) / 2, w, h, 'logo', 'FAST'); } catch (e) {}
+  }
+  function logoRatio() {
+    var src = U.store('logo'); if (!src) return Promise.resolve(2);
+    return new Promise(function (ok) { var im = new Image(); im.onload = function () { ok(im.width / im.height || 2); }; im.onerror = function () { ok(2); }; im.src = src; });
+  }
   function txt(s) { // caractères absents des polices standard du PDF
     return String(s == null ? '' : s).replace(/[≈]/g, '~').replace(/[✓✔]/g, 'v').replace(/[⚙★☁⏳📷📍]/g, '').replace(/[  ]/g, ' ').replace(/[^\x00-\xFFŒœŠšŸŽžƒˆ˜–—‘’‚“”„†‡•…‰‹›€™]/g, '');
   }
@@ -40,13 +50,22 @@
     var tasks = [];
     for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) (function (x, y) {
       tasks.push(function () {
-        return loadImg(C.tileUrl(def, z, x, y)).then(function (im) {
-          if (!im) return;
-          var tx = (x * ts - Math.PI * R - minx) / view.res, ty = (maxy - (Math.PI * R - y * ts)) / view.res, sz = ts / view.res;
-          ctx.globalAlpha = opacity == null ? 1 : opacity;
-          ctx.drawImage(im, tx, ty, sz + 0.6, sz + 0.6);
-          ctx.globalAlpha = 1;
-        });
+        var tx = (x * ts - Math.PI * R - minx) / view.res, ty = (maxy - (Math.PI * R - y * ts)) / view.res, sz = ts / view.res;
+        // tuile absente (hors ligne, réseau faible) : on agrandit la partie utile d'une tuile parente
+        function attempt(dz) {
+          var zz = z - dz, xx = x >> dz, yy = y >> dz;
+          return loadImg(C.tileUrl(def, zz, xx, yy), dz ? 8000 : 20000).then(function (im) {
+            if (!im) return dz < 4 && zz - 1 >= minN ? attempt(dz + 1) : null;
+            ctx.globalAlpha = opacity == null ? 1 : opacity;
+            if (!dz) ctx.drawImage(im, tx, ty, sz + 0.6, sz + 0.6);
+            else {
+              var n = 1 << dz, part = im.width / n, sx = (x - (xx << dz)) * part, sy = (y - (yy << dz)) * part;
+              ctx.drawImage(im, sx, sy, part, part, tx, ty, sz + 0.6, sz + 0.6);
+            }
+            ctx.globalAlpha = 1;
+          });
+        }
+        return attempt(0);
       });
     })(x, y);
     return pool(tasks, 8);
@@ -144,7 +163,7 @@
     var y = 172;
     pdf.setDrawColor(200); pdf.setLineWidth(0.3); pdf.rect(MAP.x, y, MAP.w, 30);
     var x = MAP.x + 3;
-    if (meta.logo) { try { pdf.addImage(meta.logo, 'PNG', x, y + 3, 30, 14, undefined, 'FAST'); } catch (e) { try { pdf.addImage(meta.logo, 'JPEG', x, y + 3, 30, 14); } catch (e2) {} } x += 34; }
+    if (meta.logo) { logoAt(pdf, meta, x, y + 3, 30, 14); x += 34; }
     pdf.setTextColor(22, 32, 42); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.text(txt(meta.title), x, y + 8);
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.text(txt(pageLabel), x, y + 14);
     pdf.setFontSize(7.5); pdf.setTextColor(93, 107, 120);
@@ -175,6 +194,7 @@
   }
   function mapImage(pdf, cv, rect) {
     pdf.addImage(cv.toDataURL('image/jpeg', 0.86), 'JPEG', rect.x, rect.y, rect.w, rect.h, undefined, 'FAST');
+    cv.width = cv.height = 0; // libère la mémoire (téléphones)
     pdf.setDrawColor(120); pdf.setLineWidth(0.3); pdf.rect(rect.x, rect.y, rect.w, rect.h);
   }
   function viewFor(cx, cy, scaleN, rect, lat) {
@@ -247,13 +267,14 @@
   function chk(id, t, h, on) { return '<label class="check"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '><span class="grow">' + esc(t) + '<span class="hint">' + esc(h) + '</span></span></label>'; }
 
   P.atlas = function (doc, o) {
-    U.busy(true, 'Préparation de l\'atlas…');
-    return U.loadScript('vendor/jspdf.umd.min.js').then(function () {
+    U.busy(true, 'Préparation de l\'atlas…'); U.keepAwake(true);
+    var ratio = 2;
+    return U.loadScript('vendor/jspdf.umd.min.js').then(logoRatio).then(function (r) { ratio = r; }).then(function () {
       var jsPDF = window.jspdf.jsPDF, pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
       var docs = [doc]; var t = C.terrainOf(doc); if (t) docs.push(t);
       var layers = activeLayers(o.base, true);
       var srcs = {}; layers.forEach(function (l) { srcs[C.shortSrc((l.item && l.item.src) || 'IGN')] = true; });
-      var meta = { title: o.title, version: o.version, author: o.author, date: U.fmtDate(new Date().toISOString()), logo: U.store('logo'), sources: Object.keys(srcs).join(', '), page: 1, total: 0 };
+      var meta = { title: o.title, version: o.version, author: o.author, date: U.fmtDate(new Date().toISOString()), logo: U.store('logo'), logoRatio: ratio, sources: Object.keys(srcs).join(', '), page: 1, total: 0 };
       var pts = []; doc.feats.forEach(function (f) { if (f.kind === 'point') pts.push(f.coords); else (f.kind === 'line' ? f.coords : f.coords[0]).forEach(function (c) { pts.push(c); }); });
       if (!pts.length) throw new Error('Le chantier est vide');
       var lat = pts.reduce(function (s, p) { return s + p[0]; }, 0) / pts.length;
@@ -288,7 +309,7 @@
         var blob = pdf.output('blob');
         return C.deliverDialog(blob, o.title + ' - atlas v' + o.version + ' ' + U.isoDay() + '.pdf');
       });
-    }).catch(function (e) { U.busy(false); U.toast('Atlas impossible : ' + (e.message || e), 6000); });
+    }).catch(function (e) { U.busy(false); U.toast('Atlas impossible : ' + (e.message || e), 6000); }).then(function () { U.keepAwake(false); });
   };
   function pageOverview(pdf, doc, docs, layers, pts, frames, meta) {
     var ms = pts.map(function (p) { return merc(p[0], p[1]); });
@@ -386,7 +407,7 @@
     var r = C.fiches.rowOf(doc, f.pylon) || {};
     var W = 210, y = 16;
     pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.setTextColor(22, 32, 42); pdf.text(txt('Fiche pylône ' + f.pylon + ' — ' + meta.title), 12, y);
-    if (meta.logo) { try { pdf.addImage(meta.logo, 'PNG', W - 42, 8, 30, 12); } catch (e) {} }
+    logoAt(pdf, meta, W - 42, 8, 30, 12);
     y += 6; pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(93, 107, 120);
     var l = C.geo.L93.fromWGS(f.coords[0], f.coords[1]);
     pdf.text(txt('GPS ' + f.coords[0].toFixed(6) + ', ' + f.coords[1].toFixed(6) + ' — Lambert 93 ' + Math.round(l[0]) + ' / ' + Math.round(l[1]) + (r['Statut'] ? ' — statut : ' + r['Statut'] : '')), 12, y);
@@ -437,15 +458,17 @@
   }
   P.report = function (doc, o) {
     U.busy(true, 'Préparation du rapport…');
-    return U.loadScript('vendor/jspdf.umd.min.js').then(function () {
+    U.keepAwake(true);
+    var ratio = 2;
+    return U.loadScript('vendor/jspdf.umd.min.js').then(logoRatio).then(function (rr) { ratio = rr; }).then(function () {
       var jsPDF = window.jspdf.jsPDF, pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       var t = C.terrainOf(doc), inRange = function (day) { return day && day >= o.from && day <= o.to; };
       var adds = (t ? t.feats : []).filter(function (f) { return inRange(parseFrDate(C.dataGet(f, 'Date'))); });
       var rows = C.fiches.rowsOf(doc), visited = C.pylonsOf(doc).filter(function (f) { var r = C.fiches.rowOf(doc, f.pylon); return r && inRange(r['Date de visite']); });
-      var meta = { title: U.baseName(doc.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, ''), author: o.part.split(',')[0] || '', date: U.fmtDate(new Date().toISOString()), logo: U.store('logo') };
+      var meta = { title: U.baseName(doc.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, ''), author: o.part.split(',')[0] || '', date: U.fmtDate(new Date().toISOString()), logo: U.store('logo'), logoRatio: ratio };
       // page 1 : en-tête + carte
       var y = 16;
-      if (meta.logo) { try { pdf.addImage(meta.logo, 'PNG', 168, 8, 30, 12); } catch (e) {} }
+      logoAt(pdf, meta, 168, 8, 30, 12);
       pdf.setFont('helvetica', 'bold'); pdf.setFontSize(17); pdf.setTextColor(22, 32, 42); pdf.text('Rapport de visite', 12, y);
       pdf.setFontSize(12); pdf.text(txt(meta.title), 12, y + 7);
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(60, 70, 80);
@@ -520,6 +543,6 @@
         U.busy(false);
         return C.deliverDialog(pdf.output('blob'), meta.title + ' - rapport de visite ' + o.from + '.pdf');
       });
-    }).catch(function (e) { U.busy(false); U.toast('Rapport impossible : ' + (e.message || e), 6000); });
+    }).catch(function (e) { U.busy(false); U.toast('Rapport impossible : ' + (e.message || e), 6000); }).then(function () { U.keepAwake(false); });
   };
 })();

@@ -60,7 +60,9 @@
     return out;
   }
   /* KMZ : les icônes embarquées (images data:) sont rangées dans files/ */
-  function toKMZ(title, features, images) {
+  function zipLib() { return window.JSZip ? Promise.resolve() : C.u.loadScript('vendor/jszip.min.js'); }
+  function toKMZ(title, features, images) { return zipLib().then(function () { return toKMZnow(title, features, images); }); }
+  function toKMZnow(title, features, images) {
     var zip = new JSZip(), used = {};
     features.forEach(function (f) {
       var href = f.style && f.style.icon;
@@ -143,7 +145,7 @@
     var name = file.name, ext = (name.match(/\.([a-z0-9]+)$/i) || [])[1];
     ext = (ext || '').toLowerCase();
     if (ext === 'kmz') {
-      return JSZip.loadAsync(file).then(function (zip) {
+      return zipLib().then(function () { return JSZip.loadAsync(file); }).then(function (zip) {
         var kml = null, imgs = [];
         zip.forEach(function (path, entry) {
           if (/\.kml$/i.test(path) && (!kml || /(^|\/)doc\.kml$/i.test(path))) kml = entry;

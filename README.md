@@ -1,4 +1,4 @@
-# Carto chantiers — v2
+# Carto chantiers — v2.2
 
 Appli de cartographie de chantiers de lignes aériennes. Elle s'utilise sur **téléphone** (comme une appli, avec hors ligne) et sur **ordinateur** (dans Chrome ou Edge, sans rien installer).
 
@@ -14,6 +14,16 @@ Adresse : https://fredericeenergie.github.io/carto-chantiers/
 | **Calques** | Une quarantaine de calques publics avec **légende**, **transparence**, **ordre d'empilement** (glisser ⠿ ou ▲▼), œil pour masquer sans éteindre et « Tout éteindre » ; l'ordre et la transparence sont mémorisés, repris dans les paquets chantier et dans l'atlas PDF. Électricité (RTE, Enedis), gaz, SNCF, cadastre, eau et inondations (dont Vigicrues en direct), sous-sol, environnement, végétation (dont LiDAR HD), agriculture (RPG), géologie (BRGM via IGN), bâtiments (BD TOPO, exportables en tracés), communes, règlementaire, drones, relief. |
 | **Outils** | Mesure (distance, surface), **profil en long**, **ajouts terrain** (point, tracé ou zone avec note et photos), modification du chantier (ajouter, déplacer, renommer ou supprimer des pylônes, tracer accès et zones), nouveau chantier, relecture et validation des ajouts. |
 | **Export** | **KMZ, KML, GPX, GeoJSON, DXF** (Lambert 93), couche par couche. Peut inclure les **réseaux publics en vrais tracés** (1 km autour du chantier), les communes traversées et des tableaux CSV (pylônes avec GPS et Lambert 93, ajouts, communes). Aussi : **atlas PDF A4** (ensemble, série au 1/2 500, une page par pylône, légende, tableau, fiches) et **rapport de visite PDF**. |
+
+### Prise en main
+- **Téléphone debout** : barre en bas, panneaux qui montent du bas. **Téléphone couché** : barre à gauche, panneaux à gauche, fiches à droite. **Tablette** : panneaux flottants. **Ordinateur** : panneau fixe à gauche, fiches à droite.
+- Le **bouton retour** du téléphone (ou **Échap** à l'ordinateur) referme d'abord la fenêtre ouverte, puis la fiche du point, puis le panneau.
+- Une saisie non enregistrée (fiche pylône, ajout terrain) n'est jamais perdue par erreur : l'appli demande avant d'abandonner.
+- Fiche d'un pylône : **◀ ▶** pour passer au pylône précédent ou suivant ; dans la fiche pylône, **◀ 12 / 14 ▶** enregistre et passe au suivant.
+- **Ma position** : un appui centre la carte sur toi et te suit ; dès que tu déplaces la carte, le suivi s'arrête (le point bleu reste) ; nouvel appui pour recentrer, encore un pour arrêter.
+- À l'ordinateur : **glisse-dépose** des KMZ, KML, GPX, GeoJSON sur la carte pour les ouvrir, ou un tableau CSV / Excel pour l'importer dans les fiches. Pendant un tracé : **Entrée** valide, **Retour arrière** ou **Ctrl+Z** annule le dernier point.
+- Les photos sont réduites à 2 560 px avant l'envoi : l'envoi depuis le terrain est rapide et le Drive reste léger.
+- L'appli démarre instantanément, même sans réseau. Quand une nouvelle version est en ligne, un message propose de **recharger**.
 
 ### Où vont les données
 - **Fiches pylônes** : un Google Sheet par chantier, « <chantier> - fiches pylônes », rangé à côté du fichier du chantier. Une ligne par pylône, avec des listes déroulantes. Il se modifie aussi bien dans l'appli que dans Sheets.

@@ -125,6 +125,15 @@
     $('drawBar').hidden = true; C.mapClickHook = null;
   };
   $('drUndo').onclick = function () { if (drawState) { drawState.pts.pop(); drUpdate(); } };
+  // clavier (ordinateur) : Entrée valide le tracé, Retour arrière / Ctrl+Z annule le dernier point
+  document.addEventListener('keydown', function (e) {
+    if (/INPUT|TEXTAREA|SELECT/.test((e.target && e.target.tagName) || '')) return;
+    var undo = e.key === 'Backspace' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z');
+    if (drawState) {
+      if (e.key === 'Enter' && !$('drDone').disabled) { e.preventDefault(); finishDraw(); }
+      else if (undo) { e.preventDefault(); drawState.pts.pop(); drUpdate(); }
+    } else if (ms.on && undo) { e.preventDefault(); ms.pts.pop(); msRedraw(); }
+  });
   $('drCancel').onclick = function () { T.cancelDraw(); };
   $('drDone').onclick = finishDraw;
 
@@ -144,19 +153,6 @@
     C.pylonsOf(doc).forEach(function (f) { var d = C.geo.dist(f.coords, ll); if (d < bd) { bd = d; best = f; } });
     return best && bd < 2000 ? best.pylon : '';
   }
-  function makeThumb(file) {
-    return new Promise(function (ok) {
-      var img = new Image(), url = URL.createObjectURL(file);
-      img.onload = function () {
-        var s = 240 / Math.max(img.width, img.height), cv = document.createElement('canvas');
-        cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
-        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
-        ok(cv.toDataURL('image/jpeg', 0.7));
-      };
-      img.onerror = function () { ok(null); };
-      img.src = url;
-    });
-  }
   function terrainForm(chantier, f, kind, pts, tdoc) {
     var isNew = !f;
     var g = function (k) { return f ? C.dataGet(f, k) : ''; };
@@ -171,24 +167,33 @@
       '<label class="field"><span>Pylône concerné</span><select id="taPyl"><option value="">—</option>' + pyls.map(function (p) { return '<option' + ((f ? g('Pylône') : nearestPylon(chantier, ll)) === p.pylon ? ' selected' : '') + '>' + esc(p.pylon) + '</option>'; }).join('') + '</select></label>' +
       '<div class="field"><span>Photos</span><div class="photos" id="taPh">' + photos.map(C.photoThumb).join('') + '<button type="button" class="ph add" id="taAdd" title="Prendre ou choisir des photos">📷</button></div></div>' +
       '<div class="field"><span>Statut</span><div class="seg" id="taSt">' + ['À valider', 'Validé', 'À revoir'].map(function (s) { return '<button type="button" data-s="' + s + '"' + ((g('Statut') || 'À valider') === s ? ' class="on"' : '') + '>' + s + '</button>'; }).join('') + '</div></div>';
-    var d = C.openDlg({ title: isNew ? 'Nouvel ajout terrain' : 'Modifier l\'ajout', body: html, foot: '<button class="btn" id="taCancel">Annuler</button><button class="btn primary push" id="taSave">Enregistrer</button>' });
+    var processing = 0, snap = null;
+    function state() { return [d.q('#taName').value, d.q('#taNote').value, d.q('#taPyl').value, (d.q('#taCat .on') || {}).textContent, (d.q('#taSt .on') || {}).textContent].join('|'); }
+    var d = C.openDlg({ title: isNew ? 'Nouvel ajout terrain' : 'Modifier l\'ajout', body: html, foot: '<button class="btn" id="taCancel">Annuler</button><button class="btn primary push" id="taSave">Enregistrer</button>',
+      guard: function () { return newPhotos.length > 0 || processing > 0 || state() !== snap; } });
+    snap = state();
+    if (isNew && !U.isDesktop()) { /* pas de clavier imposé sur téléphone */ } else if (isNew) setTimeout(function () { d.q('#taName').focus(); }, 250);
     d.qa('#taCat [data-c]').forEach(function (b) { b.onclick = function () { d.qa('#taCat [data-c]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on'); }; });
     d.qa('#taSt [data-s]').forEach(function (b) { b.onclick = function () { d.qa('#taSt [data-s]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on'); }; });
     d.q('#taAdd').onclick = function () {
       U.pickFiles('image/*').then(function (files) {
         files.forEach(function (file) {
           var key = U.uid();
-          makeThumb(file).then(function (th) {
-            var p = { key: key, thumb: th, name: U.baseName(chantier.name) + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg' };
-            newPhotos.push({ p: p, file: file });
-            var s = document.createElement('span'); s.className = 'ph'; if (th) s.style.backgroundImage = 'url(' + th + ')';
-            d.q('#taPh').insertBefore(s, d.q('#taAdd'));
+          var s = document.createElement('span'); s.className = 'ph wait'; s.textContent = '…';
+          d.q('#taPh').insertBefore(s, d.q('#taAdd'));
+          processing++;
+          U.compressImage(file).then(function (r) {
+            var p = { key: key, thumb: r.thumb, name: U.baseName(chantier.name) + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg' };
+            newPhotos.push({ p: p, file: r.blob });
+            s.classList.remove('wait'); s.textContent = ''; if (r.thumb) s.style.backgroundImage = 'url(' + r.thumb + ')';
+            processing--;
           });
         });
       });
     };
-    d.q('#taCancel').onclick = function () { C.closeDlg(1); };
-    d.q('#taSave').onclick = function () {
+    d.q('#taCancel').onclick = function () { C.requestClose(1); };
+    d.q('#taSave').onclick = function save() {
+      if (processing) { U.toast('Photo en cours de préparation…', 1500); setTimeout(save, 600); return; }
       var t = tdoc || C.terrainOf(chantier, true);
       var c = d.q('#taCat .on') ? d.q('#taCat .on').getAttribute('data-c') : 'Note';
       var name = d.q('#taName').value.trim() || c;

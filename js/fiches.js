@@ -100,7 +100,7 @@
     var r = api.rowOf(doc, f.pylon);
     var filled = r ? F.FIELDS.filter(function (x) { return r[x.label]; }).length : 0;
     var box = document.createElement('div'); box.className = 'card';
-    box.innerHTML = '<h4>Fiche pylône ' + esc(f.pylon) + ' ' + (r && r['Statut'] ? '<span class="tag ' + (r['Statut'] === 'Validé' ? 'ok' : r['Statut'] === 'Visité' ? 'warn' : 'grey') + '">' + esc(r['Statut']) + '</span>' : '<span class="tag grey">vide</span>') + '</h4>' +
+    box.innerHTML = '<h4>Fiche pylône ' + esc(f.pylon) + ' ' + (r && r['Statut'] ? '<span class="tag ' + (r['Statut'] === 'Validé' ? 'ok' : r['Statut'] === 'Visité' ? 'warn' : 'grey') + '">' + esc(r['Statut']) + '</span>' : (filled ? '<span class="tag grey">en cours</span>' : '<span class="tag grey">vide</span>')) + '</h4>' +
       '<div>' + filled + ' / ' + F.FIELDS.length + ' champs remplis' + (r && r['Type'] ? ' · ' + esc(r['Type']) : '') + (r && r['Famille / modèle'] ? ' · ' + esc(r['Famille / modèle']) : '') + '</div>';
     el.insertBefore(box, el.firstChild);
   };
@@ -124,9 +124,20 @@
         st.extras.map(function (h) { return '<label class="field"><span>' + esc(h.slice(F.IMPORT_PREFIX.length)) + '</span><input type="text" data-x="' + esc(h) + '" value="' + esc(r[h] || '') + '"></label>'; }).join('') + '</div></div>';
     }
     if (st.url) html += '<p class="muted small" style="margin-top:12px">Tableau des fiches : <a href="' + esc(st.url) + '" target="_blank" rel="noopener">ouvrir dans Google Sheets</a></p>';
+    var plist = C.pylonsOf(doc), pi = plist.indexOf(f), prev = plist[pi - 1], next = plist[pi + 1];
+    var snapshot = null;
     var d = C.openDlg({ title: 'Fiche pylône ' + num + ' — ' + U.baseName(doc.name), body: html,
-      foot: '<button class="btn" id="fcCancel">Annuler</button><button class="btn primary push" id="fcSave">Enregistrer</button>' });
+      foot: '<button class="btn" id="fcCancel">Annuler</button>' +
+        (prev ? '<button class="btn" id="fcPrev" title="Enregistrer et passer au pylône ' + esc(prev.pylon) + '">◀ ' + esc(prev.pylon) + '</button>' : '') +
+        (next ? '<button class="btn" id="fcNext" title="Enregistrer et passer au pylône ' + esc(next.pylon) + '">' + esc(next.pylon) + ' ▶</button>' : '') +
+        '<button class="btn primary push" id="fcSave">Enregistrer</button>',
+      guard: function () { return pending.length > 0 || JSON.stringify(currentVals()) !== snapshot; } });
     var body = d.body;
+    function currentVals() {
+      var v = readFields(body), stEl = body.querySelector('#fcStat .on'); v['Statut'] = stEl ? stEl.getAttribute('data-s') : '';
+      body.querySelectorAll('[data-x]').forEach(function (i) { v[i.getAttribute('data-x')] = i.value; });
+      return v;
+    }
     // sections
     body.querySelectorAll('.fsec > button').forEach(function (b) {
       b.onclick = function () { var s = b.parentNode; s.classList.toggle('open'); openSec[s.getAttribute('data-sec')] = s.classList.contains('open'); U.storeJSON('ficheOpen', openSec); };
@@ -141,16 +152,22 @@
         if (on && b.getAttribute('data-s') !== 'À visiter' && dv && !dv.value) dv.value = U.isoDay();
       };
     });
-    wireFields(body, doc);
+    wireFields(body, doc, num);
     updateFill(body);
     body.addEventListener('input', function () { updateFill(body); });
     body.addEventListener('click', function (e) { if (e.target.closest('.chips')) setTimeout(function () { updateFill(body); }, 0); });
+    snapshot = JSON.stringify(currentVals());
     d.q('#fcAuto').onclick = function () { autoFill(doc, f, body); };
-    d.q('#fcCancel').onclick = function () { C.closeDlg(1); };
-    d.q('#fcSave').onclick = function () {
-      var vals = readFields(body);
-      var stEl = body.querySelector('#fcStat .on'); vals['Statut'] = stEl ? stEl.getAttribute('data-s') : '';
-      body.querySelectorAll('[data-x]').forEach(function (i) { vals[i.getAttribute('data-x')] = i.value; });
+    d.q('#fcCancel').onclick = function () { C.requestClose(1); };
+    if (d.q('#fcPrev')) d.q('#fcPrev').onclick = function () { save(prev); };
+    if (d.q('#fcNext')) d.q('#fcNext').onclick = function () { save(next); };
+    d.q('#fcSave').onclick = function () { save(null); };
+    function save(goTo) {
+      var unchanged = !pending.length && JSON.stringify(currentVals()) === snapshot;
+      if (unchanged && goTo) { C.closeDlg(1); C.selectFeature(doc, goTo, true); api.open(doc, goTo); return; }
+      var busyPh = body.querySelectorAll('.ph.wait').length;
+      if (busyPh) { U.toast('Photo en cours de préparation…', 1500); setTimeout(function () { save(goTo); }, 600); return; }
+      var vals = currentVals();
       if (vals['Auteur']) U.store('auteur', vals['Auteur']);
       // photos à envoyer
       pending.forEach(function (p) { C.sync.add({ t: 'photo', key: C.docKey(doc), photo: p.key, name: p.name, target: 'fiche', chantier: U.baseName(doc.name) }); });
@@ -158,8 +175,9 @@
       setRow(doc, num, vals);
       C.closeDlg(1); C.renderDoc(doc);
       U.toast('Fiche du pylône ' + num + ' enregistrée' + (U.isOnline() ? '' : ' (envoi au retour du réseau)'), 2500);
-      if (C.selected() && C.selected().f === f) C.selectFeature(doc, f);
-    };
+      if (goTo) { C.selectFeature(doc, goTo, true); api.open(doc, goTo); }
+      else if (C.selected() && C.selected().f === f) C.selectFeature(doc, f);
+    }
   };
   function fieldHtml(fd, v) {
     v = v == null ? '' : String(v);
@@ -179,7 +197,7 @@
     var type = fd.t === 'number' ? 'number' : fd.t === 'date' ? 'date' : 'text';
     return '<label class="field">' + lab + '<input type="' + type + '" ' + (type === 'number' ? 'inputmode="decimal" step="any" ' : '') + 'data-k="' + fd.k + '" value="' + esc(v) + '"></label>';
   }
-  function wireFields(body, doc) {
+  function wireFields(body, doc, num) {
     body.querySelectorAll('.chips').forEach(function (ch) {
       var multi = ch.parentNode.getAttribute('data-t') === 'multi';
       ch.querySelectorAll('button').forEach(function (b) {
@@ -193,12 +211,16 @@
       b.onclick = function () {
         U.pickFiles('image/*').then(function (files) {
           files.forEach(function (file) {
-            var key = U.uid(), name = 'P' + (doc && C.selected() && C.selected().f.pylon || '') + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg';
-            C.sync.putBlob(key, file);
-            pending.push({ key: key, name: name });
+            var key = U.uid(), name = 'P' + (num || '') + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg';
             var holder = b.parentNode.parentNode;
             holder.setAttribute('data-v', (holder.getAttribute('data-v') ? holder.getAttribute('data-v') + '\n' : '') + 'local:' + key);
-            U.blobToDataUrl(file).then(function (u) { var s = document.createElement('span'); s.className = 'ph'; s.style.backgroundImage = 'url(' + u + ')'; b.parentNode.insertBefore(s, b); });
+            var s = document.createElement('span'); s.className = 'ph wait'; s.textContent = '…'; b.parentNode.insertBefore(s, b);
+            U.compressImage(file).then(function (r) {
+              return C.sync.putBlob(key, r.blob).then(function () {
+                pending.push({ key: key, name: name });
+                s.classList.remove('wait'); s.textContent = ''; if (r.thumb) s.style.backgroundImage = 'url(' + r.thumb + ')';
+              });
+            });
           });
         });
       };
@@ -285,11 +307,18 @@
     ]).then(function (src) {
       if (!src) return;
       if (src === 'model') return api.downloadTemplate();
+      if (src === 'device') return U.pickFile('.csv,.txt,.xlsx,.xls,.ods').then(function (file) { if (file) api.importFile(file, opts); });
       var load = src === 'device'
         ? U.pickFile('.csv,.txt,.xlsx,.xls,.ods').then(function (file) { if (!file) return null; U.busy(true, 'Lecture du tableau…'); return U.loadScript('vendor/xlsx.full.min.js').then(function () { return C.formats.readTable(file); }); })
         : C.browseDrive({ mode: 'table' }).then(function (f) { if (!f) return null; U.busy(true, 'Lecture du tableau…'); return C.callPorte('lireTableur', { id: f.id }).then(function (j) { return j.valeurs; }); });
       return load.then(function (rows) { U.busy(false); if (rows) mapping(rows, opts); }).catch(function (e) { U.busy(false); U.toast('Lecture impossible : ' + (e.message || e), 6000); });
     });
+  };
+  api.importFile = function (file, opts) {
+    U.busy(true, 'Lecture du tableau…');
+    return U.loadScript('vendor/xlsx.full.min.js').then(function () { return C.formats.readTable(file); })
+      .then(function (rows) { U.busy(false); if (rows) mapping(rows, opts || {}); })
+      .catch(function (e) { U.busy(false); U.toast('Lecture impossible : ' + (e.message || e), 6000); });
   };
   function mapping(rows, opts) {
     rows = rows.filter(function (r) { return r && r.some(function (v) { return String(v).trim() !== ''; }); });

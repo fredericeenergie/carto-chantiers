@@ -1,5 +1,5 @@
-/* Service worker « Carto chantiers » : appli disponible sans réseau + tuiles préparées. */
-var VERSION = 'v2.1.0';
+/* Service worker « Carto chantiers » : démarrage instantané, appli disponible sans réseau, tuiles préparées. */
+var VERSION = 'v2.2.0';
 var SHELL = 'carto-shell-' + VERSION;
 var SHELL_FILES = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
@@ -11,7 +11,10 @@ var SHELL_FILES = [
 var DATA_HOSTS = ['data.geopf.fr', 'geobretagne.fr', 'www.georisques.gouv.fr', 'odre.opendatasoft.com', 'server.arcgisonline.com'];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(SHELL).then(function (c) { return c.addAll(SHELL_FILES); }).then(function () { return self.skipWaiting(); }));
+  // « reload » : on prend les fichiers frais sur le serveur, pas une copie du cache HTTP
+  e.waitUntil(caches.open(SHELL).then(function (c) {
+    return Promise.all(SHELL_FILES.map(function (u) { return fetch(new Request(u, { cache: 'reload' })).then(function (r) { if (!r.ok) throw new Error(u); return c.put(u, r); }); }));
+  }).then(function () { return self.skipWaiting(); }));
 });
 
 self.addEventListener('activate', function (e) {
@@ -27,41 +30,44 @@ function timeout(p, ms) {
     p.then(function (r) { clearTimeout(t); ok(r); }, function (e) { clearTimeout(t); ko(e); });
   });
 }
+function isTile(url) { return /GetTile|REQUEST=GetMap|request=GetMap|\/tile\//.test(url.href); }
 
 self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
 
-  // Appli : réseau d'abord (pour recevoir les mises à jour), sinon copie locale.
+  // Appli : copie locale immédiate (démarrage instantané, même avec un réseau faible).
+  // Les mises à jour arrivent avec une nouvelle version du service worker.
   if (url.origin === self.location.origin) {
-    if (url.pathname.indexOf('/__data/') >= 0) return; // données lues directement dans le cache par l'appli
-    e.respondWith(
-      timeout(fetch(req), 4000).then(function (r) {
-        if (r && r.ok) { var copy = r.clone(); caches.open(SHELL).then(function (c) { c.put(req, copy); }); }
-        return r;
-      }).catch(function () {
-        return caches.match(req, { ignoreSearch: true }).then(function (r) {
-          if (r) return r;
-          if (req.mode === 'navigate') return caches.match('./index.html');
-          return Response.error();
-        });
-      })
-    );
+    if (url.pathname.indexOf('/__data/') >= 0 || url.pathname.indexOf('/__blob/') >= 0) return;
+    var shellReq = req.mode === 'navigate' ? './index.html' : req;
+    e.respondWith(caches.open(SHELL).then(function (c) {
+      return c.match(shellReq, { ignoreSearch: true }).then(function (hit) {
+        if (hit) return hit;
+        return fetch(req).then(function (r) { if (r && r.ok && url.search === '') c.put(req, r.clone()); return r; })
+          .catch(function () { return req.mode === 'navigate' ? c.match('./index.html') : Response.error(); });
+      });
+    }));
     return;
   }
 
-  // Tuiles et données publiques : en direct si possible, sinon copie « hors ligne ».
+  // Tuiles et données publiques
   if (DATA_HOSTS.indexOf(url.hostname) >= 0) {
     e.respondWith((function () {
-      if (self.navigator && self.navigator.onLine === false) {
-        return caches.match(req.url).then(function (r) { return r || Response.error(); });
-      }
-      return timeout(fetch(req), 8000).then(function (r) {
-        if (r && (r.ok || r.type === 'opaque')) return r;
-        return caches.match(req.url).then(function (c) { return c || r; });
-      }).catch(function () {
-        return caches.match(req.url).then(function (r) { return r || Response.error(); });
+      // tuile déjà préparée hors ligne : affichage immédiat, sans attendre le réseau
+      var cached = isTile(url) ? caches.match(req.url) : Promise.resolve(null);
+      return cached.then(function (hit) {
+        if (hit) return hit;
+        if (self.navigator && self.navigator.onLine === false) {
+          return caches.match(req.url).then(function (r) { return r || Response.error(); });
+        }
+        return timeout(fetch(req), 10000).then(function (r) {
+          if (r && (r.ok || r.type === 'opaque')) return r;
+          return caches.match(req.url).then(function (c) { return c || r; });
+        }).catch(function () {
+          return caches.match(req.url).then(function (r) { return r || Response.error(); });
+        });
       });
     })());
   }
