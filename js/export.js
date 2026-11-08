@@ -1,0 +1,269 @@
+/* Carto chantiers — onglet Export : fichiers KMZ/KML/GPX/GeoJSON/DXF/CSV, réseaux publics en tracés, communes, destinations. */
+(function () {
+  'use strict';
+  var C = window.Carto, U = C.u, $ = C.$, esc = U.esc;
+  var BUFFER = 1000;
+
+  /* ======================= Destinations ======================= */
+  C.deliver = function (files, dest) { // files : [{blob, name}]
+    if (dest.type === 'device') {
+      files.forEach(function (f, i) {
+        setTimeout(function () {
+          var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([f.blob], { type: 'application/octet-stream' })); a.download = f.name; document.body.appendChild(a); a.click();
+          setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+        }, i * 600);
+      });
+      U.toast(files.length > 1 ? files.length + ' fichiers téléchargés' : 'Téléchargé : ' + files[0].name, 3500);
+      return Promise.resolve();
+    }
+    if (dest.type === 'share') {
+      var fl = files.map(function (f) { return new File([f.blob], f.name, { type: f.blob.type || 'application/octet-stream' }); });
+      if (navigator.canShare && navigator.canShare({ files: fl })) {
+        return navigator.share({ files: fl, title: fl[0].name }).catch(function (e) { if (e && e.name !== 'AbortError') U.toast('Partage impossible : ' + e.message); });
+      }
+      U.toast('Partage de fichiers non pris en charge ici : téléchargement à la place', 4000);
+      return C.deliver(files, { type: 'device' });
+    }
+    var folder = dest.type === 'root' ? Promise.resolve({ id: 'root', name: 'Mon Drive' }) : C.browseDrive({ mode: 'folder' });
+    return folder.then(function (fd) {
+      if (!fd) return;
+      U.busy(true, 'Envoi sur le Drive…');
+      var chain = Promise.resolve();
+      files.forEach(function (f) {
+        chain = chain.then(function () { return U.blobToBase64(f.blob); }).then(function (b64) {
+          return C.postPorte('enregistrer', { nom: f.name, dossierId: fd.id, base64: b64, mime: f.blob.type || 'application/octet-stream' });
+        });
+      });
+      return chain.then(function () { U.busy(false); U.toast((files.length > 1 ? files.length + ' fichiers enregistrés' : '« ' + files[0].name + ' » enregistré') + ' dans « ' + fd.name + ' »', 4500); })
+        .catch(function (e) { U.busy(false); U.toast('Échec de l\'envoi : ' + (e.message || e), 6000); });
+    });
+  };
+  C.destChoices = function () {
+    return [
+      { v: 'root', label: '☁ Racine de mon Drive', hint: 'Le fichier apparaîtra dans la liste de l\'appli' },
+      { v: 'folder', label: '📁 Dossier du Drive…', hint: 'Choisir le dossier' },
+      { v: 'device', label: '⬇ Sur cet appareil', hint: 'Téléchargement' },
+      { v: 'share', label: '↗ Partager', hint: 'Mail, WhatsApp, Drive…' }
+    ];
+  };
+  C.deliverDialog = function (blob, name) {
+    return C.choiceDlg('Enregistrer « ' + name + ' »', C.destChoices()).then(function (v) { if (v) return C.deliver([{ blob: blob, name: name }], { type: v }); });
+  };
+
+  /* ======================= Réseaux publics en tracés ======================= */
+  function samplesOf(seqs) {
+    var out = [];
+    seqs.forEach(function (s) { C.geo.densify(s, 120).forEach(function (p) { out.push(p); }); });
+    return out;
+  }
+  function near(samples, coords, limit) {
+    for (var i = 0; i < coords.length; i++) for (var j = 0; j < samples.length; j++) if (C.geo.dist(coords[i], samples[j]) <= limit) return true;
+    return false;
+  }
+  function gjCoords(g) { // → liste de géométries internes {kind, coords}
+    var out = [], ll = function (c) { return [c[1], c[0]]; };
+    if (!g) return out;
+    if (g.type === 'Point') out.push({ kind: 'point', coords: ll(g.coordinates) });
+    else if (g.type === 'MultiPoint') g.coordinates.forEach(function (c) { out.push({ kind: 'point', coords: ll(c) }); });
+    else if (g.type === 'LineString') out.push({ kind: 'line', coords: g.coordinates.map(ll) });
+    else if (g.type === 'MultiLineString') g.coordinates.forEach(function (l) { out.push({ kind: 'line', coords: l.map(ll) }); });
+    else if (g.type === 'Polygon') out.push({ kind: 'poly', coords: g.coordinates.map(function (r) { return r.map(ll); }) });
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(function (p) { out.push({ kind: 'poly', coords: p.map(function (r) { return r.map(ll); }) }); });
+    return out;
+  }
+  function flat(geom) { return geom.kind === 'point' ? [geom.coords] : geom.kind === 'line' ? C.geo.densify(geom.coords, 200) : C.geo.densify(geom.coords[0], 200); }
+  function cleanProps(p) {
+    var out = [];
+    Object.keys(p || {}).forEach(function (k) {
+      var v = p[k]; if (v == null || v === '' || typeof v === 'object') return;
+      if (/^(geo_|the_geom|gid$|fid$|ogc_fid|cleabs|identification_[2-5]|nom_ouvrage_[2-5]|proprietaire_[2-5]|code_ligne_[2-5]|nom_ligne_[2-5]|etat_[2-5])/i.test(k)) return;
+      out.push([k.replace(/_/g, ' '), String(v)]);
+    });
+    return out;
+  }
+  C.fetchPublic = function (chantier, ids, onStep) {
+    var seqs = C.geometryOf(asParsed(chantier)), b = C.bboxOf(seqs, BUFFER), samples = samplesOf(seqs);
+    var feats = [], report = [];
+    var chain = Promise.resolve();
+    C.VECTORS.filter(function (v) { return ids.indexOf(v.id) >= 0; }).forEach(function (v) {
+      chain = chain.then(function () {
+        if (onStep) onStep(v.label);
+        return U.withTimeout(fetch(v.url(b), { mode: 'cors' }), 60000).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function (j) {
+          var n = 0;
+          (j.features || []).forEach(function (ft) {
+            gjCoords(ft.geometry).forEach(function (g) {
+              if (!near(samples, flat(g), BUFFER)) return;
+              var p = ft.properties || {}, name = v.name.map(function (k) { return p[k]; }).filter(Boolean)[0] || v.label;
+              feats.push({ kind: g.kind, coords: g.coords, name: String(name), folder: v.folder.split(' › ').concat([v.label.split(' — ').pop()]), data: cleanProps(p),
+                style: { line: v.color, width: g.kind === 'line' ? 3 : 2, fill: v.color, fillOp: 0.2, iconColor: v.color } });
+              n++;
+            });
+          });
+          report.push(v.label + ' : ' + n);
+        }).catch(function (e) { report.push(v.label + ' : indisponible (' + (e.message || e) + ')'); });
+      });
+    });
+    return chain.then(function () { return { feats: feats, report: report }; });
+  };
+  C.fetchCommunes = function (chantier) {
+    var seqs = C.geometryOf(asParsed(chantier)), b = C.bboxOf(seqs, BUFFER), samples = samplesOf(seqs);
+    return U.withTimeout(fetch(C.communesUrl(b), { mode: 'cors' }), 60000).then(function (r) { return r.json(); }).then(function (j) {
+      var out = [];
+      (j.features || []).forEach(function (ft) {
+        var gs = gjCoords(ft.geometry), hit = false;
+        gs.forEach(function (g) {
+          if (hit || g.kind !== 'poly') return;
+          if (samples.some(function (s) { return C.geo.pointInRing(s, g.coords[0]); })) hit = true;
+          else if (near(samples, g.coords[0].filter(function (c, i) { return i % 3 === 0; }), BUFFER)) hit = true;
+        });
+        if (hit) out.push({ nom: ft.properties.nom_officiel || ft.properties.nom || '?', insee: ft.properties.code_insee || '', dep: ft.properties.code_insee_du_departement || '', geoms: gs });
+      });
+      out.sort(function (a, b) { return U.natural(a.nom, b.nom); });
+      return out;
+    });
+  };
+  function asParsed(doc) { // pour réutiliser les fonctions « hors ligne »
+    var res = { points: [], lines: [], polys: [] };
+    doc.feats.forEach(function (f) {
+      if (f.kind === 'point') res.points.push({ lat: f.coords[0], lon: f.coords[1] });
+      else if (f.kind === 'line') res.lines.push({ coords: f.coords });
+      else res.polys.push({ rings: f.coords });
+    });
+    return res;
+  }
+  C.asParsed = asParsed;
+
+  /* ======================= Tableaux CSV ======================= */
+  C.pylonCSV = function (doc) {
+    var head = ['N°', 'Nom', 'Latitude', 'Longitude', 'X Lambert 93', 'Y Lambert 93', 'Type', 'Famille / modèle', 'Commune', 'Parcelle', 'Statut', 'Lien Waze', 'Fichier'];
+    var rows = [head];
+    C.pylonsOf(doc).forEach(function (f) {
+      var r = C.fiches.rowOf(doc, f.pylon) || {}, l = C.geo.L93.fromWGS(f.coords[0], f.coords[1]);
+      rows.push([f.pylon, f.name, f.coords[0].toFixed(7).replace('.', ','), f.coords[1].toFixed(7).replace('.', ','), l[0].toFixed(2).replace('.', ','), l[1].toFixed(2).replace('.', ','),
+        r['Type'] || '', r['Famille / modèle'] || '', r['Commune'] || '', r['Parcelle'] || '', r['Statut'] || '',
+        'https://waze.com/ul?ll=' + f.coords[0].toFixed(6) + ',' + f.coords[1].toFixed(6) + '&navigate=yes', U.baseName(doc.name)]);
+    });
+    return C.formats.toCSV(rows);
+  };
+  C.terrainCSV = function (chantier) {
+    var t = C.terrainOf(chantier); var rows = [['Nom', 'Catégorie', 'Pylône', 'Note', 'Statut', 'Date', 'Auteur', 'Latitude', 'Longitude', 'X Lambert 93', 'Y Lambert 93', 'Longueur / surface', 'Photos']];
+    (t ? t.feats : []).forEach(function (f) {
+      var c = f.kind === 'point' ? f.coords : C.centerOf(f), l = C.geo.L93.fromWGS(c[0], c[1]);
+      rows.push([f.name, f.folder[1] || '', C.dataGet(f, 'Pylône'), f.desc || '', C.dataGet(f, 'Statut'), C.dataGet(f, 'Date'), C.dataGet(f, 'Auteur'),
+        c[0].toFixed(7).replace('.', ','), c[1].toFixed(7).replace('.', ','), l[0].toFixed(2).replace('.', ','), l[1].toFixed(2).replace('.', ','),
+        C.dataGet(f, 'Longueur') || C.dataGet(f, 'Surface'), (f.photos || []).filter(function (p) { return p.url; }).map(function (p) { return p.url; }).join(' ')]);
+    });
+    return C.formats.toCSV(rows);
+  };
+
+  /* ======================= Onglet Export ======================= */
+  var FORMATS = [['kmz', 'KMZ'], ['kml', 'KML'], ['gpx', 'GPX'], ['geojson', 'GeoJSON'], ['dxf', 'DXF (AutoCAD)']];
+  var defaultVec = { rte_aer: ['v_rte_aer'], rte_pyl: ['v_rte_pyl'], rte_sout: ['v_rte_sout'], rte_postes: ['v_rte_postes'], hta_aer: ['v_hta_aer'], hta_sout: ['v_hta_sout'], bt: ['v_bt_aer', 'v_bt_sout'], gaz_distri: ['v_grdf'], gaz_transport: ['v_gaz'], canal_autres: ['v_hydro', 'v_chim'], sncf_lignes: ['v_sncf'], sncf_pn: ['v_sncf_pn'] };
+  C.tabs.export = function (el) {
+    var a = C.activeDoc(), docs = C.docs.filter(function (d) { return d.role !== 'terrain'; });
+    var html = '<h3>Fichier de cartographie</h3>';
+    if (!docs.length) { el.innerHTML = html + '<p class="muted">Ouvre d\'abord un fichier.</p>' + extraBlocks(); wireExtra(el); return; }
+    var vecOn = {}; Object.keys(C.active).forEach(function (id) { (defaultVec[id] || []).forEach(function (v) { vecOn[v] = true; }); });
+    html += '<div class="card" style="margin-top:0"><b>Couches à exporter</b>';
+    docs.forEach(function (d, di) {
+      var keys = {}, order = [];
+      d.feats.forEach(function (f) { var k = C.folderKey(f); if (keys[k] == null) { keys[k] = 0; order.push(k); } keys[k]++; });
+      html += '<div class="muted" style="margin:10px 0 2px;font-weight:700">' + esc(U.baseName(d.name)) + '</div>' + order.map(function (k) {
+        return '<label class="check"><input type="checkbox" data-doc="' + di + '" data-k="' + esc(k) + '"' + (d.visible && !d.hidden[k] ? ' checked' : '') + '><span class="grow">' + esc(k) + '<span class="hint">' + keys[k] + ' élément(s)</span></span></label>';
+      }).join('');
+      var t = C.terrainOf(d);
+      if (t && t.feats.length) html += '<label class="check"><input type="checkbox" data-terrain="' + di + '" checked><span class="grow">Ajouts terrain<span class="hint">' + t.feats.length + ' élément(s), avec liens des photos</span></span></label>';
+    });
+    html += '<label class="check"><input type="checkbox" id="exFiches" checked><span class="grow">Joindre les fiches pylônes<span class="hint">Chaque pylône porte les champs de sa fiche</span></span></label>';
+    html += '<div class="muted" style="margin:12px 0 2px;font-weight:700">Réseaux publics — 1 km autour de « ' + esc(a ? U.baseName(a.name) : '') + ' »</div>' +
+      C.VECTORS.map(function (v) { return '<label class="check"><input type="checkbox" data-vec="' + v.id + '"' + (vecOn[v.id] ? ' checked' : '') + '><span class="grow">' + esc(v.label) + '</span></label>'; }).join('') +
+      '<label class="check"><input type="checkbox" id="exCom"><span class="grow">Limites des communes traversées</span></label></div>';
+    html += '<div class="card"><b>Format</b><div class="seg" id="exFmt" style="margin-top:6px">' + FORMATS.map(function (f, i) { return '<button data-f="' + f[0] + '"' + (i === 0 ? ' class="on"' : '') + '>' + f[1].replace(' (AutoCAD)', '') + '</button>'; }).join('') + '</div>' +
+      '<p class="muted small" id="exFmtHint">Google Earth, avec styles et icônes.</p>' +
+      '<label class="check"><input type="checkbox" id="exCsv" checked><span class="grow">+ Tableau CSV des pylônes<span class="hint">N°, GPS, Lambert 93, commune, statut, lien Waze</span></span></label>' +
+      '<label class="check"><input type="checkbox" id="exCsvCom"><span class="grow">+ Liste des communes traversées (CSV)</span></label>' +
+      '<label class="check"><input type="checkbox" id="exCsvTer"><span class="grow">+ Tableau des ajouts terrain (CSV)</span></label>' +
+      '<label class="field"><span>Nom du fichier</span><input type="text" id="exName" value="' + esc((a ? U.baseName(a.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, '') : 'Export') + ' - export ' + U.isoDay()) + '"></label>' +
+      '<div class="row2"><button class="btn primary big" id="exGo">Exporter…</button></div></div>';
+    html += extraBlocks();
+    el.innerHTML = html;
+    var hints = { kmz: 'Google Earth, avec styles et icônes.', kml: 'Google Earth / Maps, texte (sans icônes embarquées).', gpx: 'GPS de randonnée, Garmin… (points et traces).', geojson: 'SIG (QGIS…), applis web.', dxf: 'AutoCAD, en Lambert 93 (mètres), un calque par dossier.' };
+    var fmt = 'kmz';
+    el.querySelectorAll('#exFmt [data-f]').forEach(function (b) { b.onclick = function () { el.querySelectorAll('#exFmt [data-f]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on'); fmt = b.getAttribute('data-f'); $('exFmtHint').textContent = hints[fmt]; }; });
+    $('exGo').onclick = function () { runExport(el, docs, a, fmt); };
+    wireExtra(el);
+  };
+  function extraBlocks() {
+    return '<h3>PDF A4</h3><div class="tiles">' +
+      C.tools.tile('atlas', '🗺', 'Atlas du chantier', 'Ensemble + série 1/2 500 + une page par pylône') +
+      C.tools.tile('report', '📝', 'Rapport de visite', 'Carte, ajouts terrain et fiches visitées, avec photos') +
+      '</div><h3>Données</h3><div class="tiles">' +
+      C.tools.tile('import', '📊', 'Importer des données', 'CSV, Excel ou Google Sheet → fiches pylônes') +
+      C.tools.tile('model', '⬇', 'Modèle à remplir', 'Excel avec toutes les colonnes de la fiche') + '</div>';
+  }
+  function wireExtra(el) {
+    el.querySelectorAll('[data-t]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.getAttribute('data-t');
+        if (k === 'atlas') C.pdf.atlasDialog();
+        if (k === 'report') C.pdf.reportDialog();
+        if (k === 'import') C.fiches.importWizard({});
+        if (k === 'model') C.fiches.downloadTemplate();
+      };
+    });
+  }
+  function runExport(el, docs, a, fmt) {
+    var feats = [], images = {};
+    var withF = $('exFiches').checked;
+    docs.forEach(function (d, di) {
+      var keep = {}; el.querySelectorAll('[data-doc="' + di + '"]').forEach(function (c) { if (c.checked) keep[c.getAttribute('data-k')] = true; });
+      var multi = docs.length > 1;
+      C.docFeaturesForExport(d, { withFiches: withF }).forEach(function (f, i) {
+        if (!keep[C.folderKey(d.feats[i])]) return;
+        if (multi) f.folder = [U.baseName(d.name)].concat(f.folder || []);
+        feats.push(f);
+      });
+      Object.assign(images, d.images || {});
+      var tb = el.querySelector('[data-terrain="' + di + '"]');
+      if (tb && tb.checked) {
+        var t = C.terrainOf(d);
+        t.feats.forEach(function (f) {
+          var o = { kind: f.kind, name: f.name, coords: f.coords, folder: (multi ? [U.baseName(d.name)] : []).concat(f.folder), desc: f.desc, data: (f.data || []).slice(), style: f.style };
+          if ((f.photos || []).some(function (p) { return p.url; })) o.descHtml = esc(f.desc || '') + '<br>' + f.photos.filter(function (p) { return p.url; }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; }).join(' · ');
+          feats.push(o);
+        });
+      }
+    });
+    var vecIds = []; el.querySelectorAll('[data-vec]').forEach(function (c) { if (c.checked) vecIds.push(c.getAttribute('data-vec')); });
+    var wantCom = $('exCom').checked || $('exCsvCom').checked;
+    var name = ($('exName').value || 'export').trim();
+    var extra = Promise.resolve({ feats: [], report: [] }), communes = Promise.resolve(null);
+    if ((vecIds.length || wantCom) && !a) { U.toast('Choisis un chantier actif pour les réseaux et communes'); return; }
+    if ((vecIds.length || wantCom) && !U.isOnline()) { U.toast('Réseaux publics et communes : nécessitent du réseau'); return; }
+    if (vecIds.length) { U.busy(true, 'Réseaux publics…'); extra = C.fetchPublic(a, vecIds, function (l) { U.busy(true, 'Téléchargement : ' + l + '…'); }); }
+    extra.then(function (r) {
+      feats = feats.concat(r.feats);
+      if (wantCom) { U.busy(true, 'Communes traversées…'); communes = C.fetchCommunes(a); }
+      return communes.then(function (coms) {
+        if (coms && $('exCom').checked) coms.forEach(function (c) { c.geoms.forEach(function (g) { if (g.kind === 'poly') feats.push({ kind: 'poly', name: c.nom + ' (' + c.insee + ')', coords: g.coords, folder: ['Communes traversées'], data: [['Code INSEE', c.insee]], style: { line: '#455a64', width: 2, fill: '#90a4ae', fillOp: 0.05 } }); }); });
+        U.busy(true, 'Création du fichier…');
+        var files = [];
+        var p;
+        if (fmt === 'kmz') p = C.formats.toKMZ(name, feats, images).then(function (b) { files.push({ blob: b, name: name + '.kmz' }); });
+        else {
+          var txt = fmt === 'kml' ? C.formats.toKML(name, feats) : fmt === 'gpx' ? C.formats.toGPX(name, feats) : fmt === 'geojson' ? C.formats.toGeoJSON(name, feats) : C.formats.toDXF(feats);
+          var mime = { kml: 'application/vnd.google-earth.kml+xml', gpx: 'application/gpx+xml', geojson: 'application/geo+json', dxf: 'application/dxf' }[fmt];
+          files.push({ blob: new Blob([txt], { type: mime }), name: name + '.' + fmt }); p = Promise.resolve();
+        }
+        return p.then(function () {
+          if ($('exCsv').checked && a) files.push({ blob: new Blob([C.pylonCSV(a)], { type: 'text/csv' }), name: name + ' - pylônes.csv' });
+          if ($('exCsvTer').checked && a) files.push({ blob: new Blob([C.terrainCSV(a)], { type: 'text/csv' }), name: name + ' - ajouts terrain.csv' });
+          if ($('exCsvCom').checked && coms) files.push({ blob: new Blob([C.formats.toCSV([['Commune', 'Code INSEE', 'Département']].concat(coms.map(function (c) { return [c.nom, c.insee, c.dep]; })))], { type: 'text/csv' }), name: name + ' - communes.csv' });
+          U.busy(false);
+          if (r.report.length) U.toast('Réseaux : ' + r.report.join(' · '), 7000);
+          return C.choiceDlg(files.length > 1 ? files.length + ' fichiers prêts — où les mettre ?' : '« ' + files[0].name + ' » — où le mettre ?', C.destChoices()).then(function (v) { if (v) return C.deliver(files, { type: v }); });
+        });
+      });
+    }).catch(function (e) { U.busy(false); U.toast('Export impossible : ' + (e.message || e), 6000); });
+  }
+})();

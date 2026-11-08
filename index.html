@@ -9,227 +9,91 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="vendor/leaflet.css">
-<style>
-  :root{
-    --bg:#ffffff; --ink:#16202a; --muted:#5d6b78; --line:#dde3e8; --soft:#eef1f4;
-    --accent:#0b5cad; --waze:#1aa3e8; --gmaps:#1e8e3e; --pyl:#d6261c; --warn:#b26a00;
-    --top: env(safe-area-inset-top, 0px); --bot: env(safe-area-inset-bottom, 0px);
-  }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;height:100%;font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#e9edf0;overscroll-behavior:none}
-  #map{position:fixed;inset:0}
-  button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
-  input,select{font:inherit}
-
-  .top{position:fixed;left:8px;right:8px;top:calc(8px + var(--top));z-index:1000;display:flex;gap:6px}
-  .chip{flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:var(--bg);border-radius:12px;padding:9px 12px;box-shadow:0 1px 4px rgba(0,0,0,.25);text-align:left}
-  .chip .lbl{font-size:11px;color:var(--muted);display:block;text-transform:uppercase;letter-spacing:.04em}
-  .chip .val{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .chip .txt{min-width:0;flex:1}
-  .chip.pyl{flex:0 0 32%}
-  .caret{color:var(--muted);font-size:12px}
-  #offBadge{position:fixed;left:50%;transform:translateX(-50%);top:calc(64px + var(--top));z-index:1000;background:var(--warn);color:#fff;
-            font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;display:none;box-shadow:0 1px 4px rgba(0,0,0,.3)}
-
-  .fabs{position:fixed;right:8px;top:calc(66px + var(--top));z-index:1000;display:flex;flex-direction:column;gap:8px}
-  .fab{width:44px;height:44px;border-radius:12px;background:var(--bg);box-shadow:0 1px 4px rgba(0,0,0,.25);display:grid;place-items:center;position:relative}
-  .fab svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-  .fab.on{background:var(--accent)} .fab.on svg{stroke:#fff}
-  .fab .count{position:absolute;top:-4px;right:-4px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;min-width:18px;height:18px;border-radius:9px;line-height:18px;text-align:center;padding:0 4px}
-
-  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1500;display:none}
-  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:1600;background:var(--bg);border-radius:16px 16px 0 0;box-shadow:0 -2px 12px rgba(0,0,0,.25);
-         transform:translateY(105%);transition:transform .22s ease;max-height:82vh;display:flex;flex-direction:column;padding-bottom:var(--bot)}
-  .sheet.open{transform:none}
-  .sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 4px;flex:0 0 auto}
-  .sheet header{display:flex;align-items:center;gap:8px;padding:6px 16px 10px;flex:0 0 auto}
-  .sheet header h2{font-size:17px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .sheet .body{overflow:auto;padding:0 16px 16px;-webkit-overflow-scrolling:touch}
-  .x{width:34px;height:34px;border-radius:50%;background:var(--soft);font-size:18px;line-height:34px;flex:0 0 auto}
-  .btn{padding:8px 11px;border-radius:9px;background:var(--soft);font-size:13px;font-weight:600;text-decoration:none;color:inherit;display:inline-block}
-  .btn.primary{background:var(--accent);color:#fff}
-  .btn.danger{background:#fbe9e7;color:#a32015}
-  .btn[disabled]{opacity:.45}
-  .empty{color:var(--muted);padding:14px 4px}
-  .muted{color:var(--muted);font-size:13px}
-  .row2{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .field{display:block;margin:10px 0}
-  .field span{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
-  .field input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
-
-  .file{display:flex;gap:10px;align-items:center;width:100%;padding:12px 4px;border-bottom:1px solid var(--line);text-align:left}
-  .file .ext{flex:0 0 auto;font-size:11px;font-weight:700;padding:3px 6px;border-radius:6px;background:#e7effa;color:var(--accent);text-transform:uppercase}
-  .file .nm{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
-  .file .dt{font-size:12px;color:var(--muted);font-weight:400;display:block}
-  .file .off{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--gmaps)}
-  .file.cur{background:#f3f7fc}
-
-  .search{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
-  .grid button{padding:12px 4px;border-radius:10px;background:#f1f3f5;font-weight:700;overflow-wrap:anywhere}
-  .grid button.cur{background:var(--pyl);color:#fff}
-  .list button{display:block;width:100%;text-align:left;padding:11px 4px;border-bottom:1px solid var(--line)}
-
-  .coords{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;margin:0 0 12px}
-  .go{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
-  .go a{display:flex;align-items:center;justify-content:center;padding:14px 8px;border-radius:12px;color:#fff;font-weight:700;text-decoration:none;font-size:16px}
-  .go .waze{background:var(--waze)} .go .gmaps{background:var(--gmaps)}
-  .meta{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;margin-top:10px;white-space:pre-wrap;overflow-wrap:anywhere}
-  .meta b{color:var(--ink);font-weight:600}
-  .infos{margin-top:10px}
-  .infos .card{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;font-size:13px}
-  .infos .card h4{margin:0 0 4px;font-size:13px}
-  .infos .card div{color:var(--muted);overflow-wrap:anywhere}
-
-  .layers .bases label,.layers .item{display:flex;align-items:flex-start;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line)}
-  .layers input[type=radio],.layers input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent);flex:0 0 auto;margin-top:1px}
-  .layers .hint{font-size:12px;color:var(--muted);display:block}
-  .layers .src{font-size:11px;color:#8a96a3;display:block}
-  .grp{margin-top:6px}
-  .grp > button{display:flex;width:100%;align-items:center;gap:8px;padding:12px 2px;font-weight:700;border-bottom:1px solid var(--line);text-align:left}
-  .grp > button .n{font-size:12px;color:#fff;background:var(--accent);border-radius:9px;padding:0 6px;font-weight:700}
-  .grp > button .chev{margin-left:auto;color:var(--muted);transition:transform .15s}
-  .grp.open > button .chev{transform:rotate(90deg)}
-  .grp .items{display:none;padding-left:4px}
-  .grp.open .items{display:block}
-  .sect{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 2px}
-
-  .bar{position:fixed;left:8px;right:8px;bottom:calc(10px + var(--bot));z-index:1200;background:var(--bg);border-radius:14px;box-shadow:0 1px 8px rgba(0,0,0,.3);padding:10px 12px;display:none}
-  .bar .big{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
-  .bar .row2{margin-top:8px}
-
-  .prog{height:8px;border-radius:4px;background:var(--soft);overflow:hidden;margin:10px 0 6px}
-  .prog div{height:100%;width:0;background:var(--accent);transition:width .2s}
-  .offitem{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px}
-  .offitem b{display:block}
-
-  .pyl-ico{background:none;border:0}
-  .pyl-ico div{transform:translate(-50%,-50%);position:absolute;left:0;top:0;min-width:24px;height:24px;padding:0 5px;border-radius:12px;background:var(--pyl);color:#fff;
-               font:700 12px/24px system-ui,sans-serif;text-align:center;white-space:nowrap;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5)}
-  .pyl-ico.sel div{background:#111;transform:translate(-50%,-50%) scale(1.25)}
-  .far .pyl-ico div{min-width:10px;width:10px;height:10px;padding:0;font-size:0;border-width:1.5px}
-  .tgt-ico{background:none;border:0}
-  .tgt-ico div{position:absolute;left:0;top:0;width:22px;height:22px;transform:translate(-50%,-50%);border-radius:50%;border:3px solid #fff;background:#111;box-shadow:0 0 0 2px #111,0 2px 6px rgba(0,0,0,.5)}
-  .ms-ico{background:none;border:0}
-  .ms-ico div{position:absolute;left:0;top:0;width:12px;height:12px;transform:translate(-50%,-50%);border-radius:50%;background:#fff;border:3px solid #ff6d00}
-  .pt-lbl{background:rgba(255,255,255,.9);border:0;box-shadow:none;font-size:11px;padding:1px 4px}
-  .far .pt-lbl{display:none}
-  .fb-tile{overflow:hidden}
-  .fb-tile img{position:absolute;left:0;top:0;width:256px;height:256px;max-width:none!important;user-select:none;-webkit-user-drag:none}
-
-  #toast{position:fixed;left:50%;bottom:calc(20px + var(--bot));transform:translateX(-50%);z-index:2000;background:#16202a;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;max-width:90vw;display:none}
-  #busy{position:fixed;inset:0;z-index:1900;display:none;place-items:center;background:rgba(255,255,255,.35)}
-  #busy div{background:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.25);font-weight:600;max-width:80vw;text-align:center}
-  .leaflet-control-attribution{font-size:9px}
-  .leaflet-bottom.leaflet-left{margin-bottom:var(--bot)}
-</style>
+<link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <div id="map"></div>
 
+<!-- Haut : chantier + pylône -->
 <div class="top">
-  <button class="chip" id="btnFile"><span class="txt"><span class="lbl">Fichier</span><span class="val" id="fileName">Choisir…</span></span><span class="caret">▼</span></button>
-  <button class="chip pyl" id="btnPyl"><span class="txt"><span class="lbl" id="pylLbl">Pylône</span><span class="val" id="pylName">—</span></span><span class="caret">▼</span></button>
+  <button class="chip" id="btnFiles"><span class="ic">🗂</span><span class="txt"><span class="lbl">Chantier</span><span class="val" id="filesVal">Ouvrir un fichier…</span></span><span class="caret">▾</span></button>
+  <button class="chip pyl" id="btnPyl"><span class="txt"><span class="lbl" id="pylLbl">Pylône</span><span class="val" id="pylName">—</span></span><span class="caret">▾</span></button>
 </div>
-<div id="offBadge">Hors réseau</div>
+<div class="badges"><span id="offBadge" class="badge warn" hidden>Hors réseau</span><button id="syncBadge" class="badge" hidden></button></div>
 
 <div class="fabs">
-  <button class="fab" id="btnLayers" aria-label="Fonds et calques"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg><span class="count" id="layerCount" style="display:none">0</span></button>
-  <button class="fab" id="btnMeasure" aria-label="Mesurer"><svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg></button>
-  <button class="fab" id="btnOffline" aria-label="Hors ligne"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg></button>
-  <button class="fab" id="btnFit" aria-label="Tout le fichier"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-  <button class="fab" id="btnLocate" aria-label="Ma position"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button class="fab" id="btnFit" title="Recentrer sur le chantier" aria-label="Recentrer"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  <button class="fab" id="btnLocate" title="Ma position" aria-label="Ma position"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
 </div>
 
-<div class="bar" id="measureBar">
-  <div class="row2" style="margin:0;justify-content:space-between">
-    <div><div class="muted" id="msHint">Touche la carte pour poser des points</div><div class="big" id="msValue">0 m</div></div>
-  </div>
+<!-- Barres d'action (mesure, tracé) -->
+<div class="bar" id="measureBar" hidden>
+  <div class="bar-top"><div><div class="muted" id="msHint">Touche la carte ou un pylône pour poser des points</div><div class="big" id="msValue">0 m</div></div></div>
   <div class="row2">
     <button class="btn" id="msUndo">↶ Annuler</button>
     <button class="btn" id="msArea">Surface : non</button>
+    <button class="btn" id="msProfile">⛰ Profil</button>
+    <button class="btn" id="msKeep">💾 Garder</button>
     <button class="btn" id="msClear">Effacer</button>
-    <button class="btn primary" id="msClose" style="margin-left:auto">Terminer</button>
+    <button class="btn primary push" id="msClose">Terminer</button>
+  </div>
+</div>
+<div class="bar" id="drawBar" hidden>
+  <div class="bar-top"><div><div class="muted" id="drHint">Touche la carte</div><div class="big" id="drTitle">Ajout</div></div></div>
+  <div class="row2">
+    <button class="btn" id="drUndo">↶ Annuler le point</button>
+    <button class="btn danger" id="drCancel">Abandonner</button>
+    <button class="btn primary push" id="drDone">Valider</button>
   </div>
 </div>
 
+<!-- Panneau principal (bas sur téléphone, gauche sur ordinateur) -->
+<aside id="panel" aria-label="Panneau">
+  <div class="grab" id="panelGrab"></div>
+  <nav class="ptabs" id="ptabs">
+    <button data-tab="carte">Carte</button><button data-tab="calques">Calques</button><button data-tab="outils">Outils</button><button data-tab="export">Export</button>
+  </nav>
+  <div class="pbody">
+    <section class="tab" id="tab-carte"></section>
+    <section class="tab" id="tab-calques"></section>
+    <section class="tab" id="tab-outils"></section>
+    <section class="tab" id="tab-export"></section>
+  </div>
+</aside>
+
+<!-- Barre du bas (téléphone) -->
+<nav id="nav">
+  <button data-tab="carte"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg><span>Carte</span></button>
+  <button data-tab="calques"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg><span>Calques</span><i class="dot" id="layerCount" hidden></i></button>
+  <button data-tab="outils"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></svg><span>Outils</span></button>
+  <button data-tab="export"><svg viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 15v5h16v-5"/></svg><span>Export</span></button>
+</nav>
+
 <div class="scrim" id="scrim"></div>
 
-<section class="sheet" id="sheetFiles">
-  <div class="grab"></div>
-  <header><h2>Cartes à la racine du Drive</h2><button class="btn" id="btnRefresh">Actualiser</button><button class="x" data-close>×</button></header>
-  <div class="body">
-    <div id="fileList"><div class="empty">Chargement…</div></div>
-    <div class="row2" style="margin-top:14px"><button class="btn" id="btnSettings">⚙ Réglages de la porte Drive</button></div>
-  </div>
-</section>
+<!-- Fenêtres (feuilles du bas sur téléphone, tiroir à droite sur ordinateur) -->
+<section class="sheet" id="dlg"><div class="grab"></div><header><h2 id="dlgTitle">—</h2><span id="dlgHead"></span><button class="x" data-close aria-label="Fermer">×</button></header><div class="body" id="dlgBody"></div><footer id="dlgFoot"></footer></section>
+<section class="sheet" id="dlg2"><div class="grab"></div><header><h2 id="dlg2Title">—</h2><button class="x" data-close2 aria-label="Fermer">×</button></header><div class="body" id="dlg2Body"></div><footer id="dlg2Foot"></footer></section>
+<section class="sheet compact" id="pointSheet"><div class="grab"></div><header><h2 id="ptTitle">Point</h2><button class="x" id="ptClose" aria-label="Fermer">×</button></header><div class="body" id="ptBody"></div></section>
 
-<section class="sheet" id="sheetPyl">
-  <div class="grab"></div>
-  <header><h2 id="pylTitle">Pylônes</h2><button class="x" data-close>×</button></header>
-  <div class="body">
-    <input class="search" id="pylSearch" placeholder="N° ou nom…" autocomplete="off">
-    <div id="pylList"></div>
-  </div>
-</section>
-
-<section class="sheet" id="sheetLayers">
-  <div class="grab"></div>
-  <header><h2>Fonds et calques</h2><button class="btn" id="btnNoLayers">Tout masquer</button><button class="x" data-close>×</button></header>
-  <div class="body layers">
-    <div class="sect">Fond de carte</div>
-    <div class="bases" id="baseList"></div>
-    <div class="sect">Calques (données publiques)</div>
-    <div id="groupList"></div>
-    <p class="muted" style="margin-top:14px">Données publiques fournies à titre indicatif : elles ne remplacent jamais une DT-DICT.</p>
-  </div>
-</section>
-
-<section class="sheet" id="sheetDest">
-  <div class="grab"></div>
-  <header><h2 id="destTitle">Point</h2><button class="x" data-close>×</button></header>
-  <div class="body">
-    <div class="coords" id="destCoords"></div>
-    <div class="go">
-      <a class="waze" id="lnkWaze" href="#" target="_blank" rel="noopener">Waze</a>
-      <a class="gmaps" id="lnkGmaps" href="#" target="_blank" rel="noopener">Google Maps</a>
-    </div>
-    <div class="row2">
-      <button class="btn" id="btnCopy">Copier les coordonnées</button>
-      <button class="btn" id="btnInfo">Que trouve-t-on ici ?</button>
-    </div>
-    <div class="infos" id="destInfos"></div>
-    <div class="meta" id="destMeta"></div>
-  </div>
-</section>
-
-<section class="sheet" id="sheetOffline">
-  <div class="grab"></div>
-  <header><h2>Hors ligne</h2><button class="x" data-close>×</button></header>
-  <div class="body" id="offBody"></div>
-</section>
-
-<section class="sheet" id="sheetSettings">
-  <div class="grab"></div>
-  <header><h2>Porte Drive</h2><button class="x" data-close>×</button></header>
-  <div class="body">
-    <p class="muted">L'appli lit ton Drive via ta « porte » Apps Script. Le plus simple : ouvrir une fois le lien donné par la fonction <b>lienInstallation()</b>. Sinon, colle ici l'adresse (se termine par /exec) et la clé.</p>
-    <label class="field"><span>Adresse de la porte</span><input id="cfgPorte" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
-    <label class="field"><span>Clé secrète</span><input id="cfgCle" type="password" autocomplete="off"></label>
-    <div class="row2"><button class="btn primary" id="cfgSave">Enregistrer et tester</button><span class="muted" id="cfgStatus"></span></div>
-    <div class="sect">Stockage sur ce téléphone</div>
-    <p class="muted" id="cfgStorage">—</p>
-    <p class="muted" id="cfgVersion"></p>
-  </div>
-</section>
-
-<div id="busy"><div id="busyTxt">Chargement…</div></div>
+<div id="busy"><div><div class="spin"></div><div id="busyTxt">Chargement…</div></div></div>
 <div id="toast"></div>
+<input type="file" id="filePick" hidden>
 
 <script src="vendor/leaflet.js"></script>
+<script src="vendor/jszip.min.js"></script>
 <script src="js/layers.js"></script>
 <script src="js/parse.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/fiche.js"></script>
+<script src="js/formats.js"></script>
 <script src="js/offline.js"></script>
-<script src="js/app.js"></script>
+<script src="js/core.js"></script>
+<script src="js/docs.js"></script>
+<script src="js/fiches.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/export.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

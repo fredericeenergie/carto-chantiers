@@ -1,10 +1,11 @@
 /* Service worker « Carto chantiers » : appli disponible sans réseau + tuiles préparées. */
-var VERSION = 'v1.0.1';
+var VERSION = 'v2.0.0';
 var SHELL = 'carto-shell-' + VERSION;
 var SHELL_FILES = [
-  './', './index.html', './manifest.webmanifest',
-  './vendor/leaflet.js', './vendor/leaflet.css',
-  './js/layers.js', './js/parse.js', './js/offline.js', './js/app.js',
+  './', './index.html', './manifest.webmanifest', './css/app.css',
+  './vendor/leaflet.js', './vendor/leaflet.css', './vendor/jszip.min.js', './vendor/jspdf.umd.min.js', './vendor/xlsx.full.min.js',
+  './js/layers.js', './js/parse.js', './js/geo.js', './js/fiche.js', './js/formats.js', './js/offline.js',
+  './js/core.js', './js/docs.js', './js/fiches.js', './js/tools.js', './js/export.js', './js/pdf.js', './js/main.js',
   './icons/icon-192.png', './icons/icon-512.png'
 ];
 var DATA_HOSTS = ['data.geopf.fr', 'geobretagne.fr', 'www.georisques.gouv.fr', 'odre.opendatasoft.com', 'server.arcgisonline.com'];

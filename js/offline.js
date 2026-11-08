@@ -9,9 +9,9 @@
   C.saveData = function (name, obj) {
     if (!('caches' in window)) return Promise.resolve();
     return caches.open(DATA_CACHE).then(function (c) {
-      return c.put(dataKey(name), new Response(JSON.stringify({ savedAt: new Date().toISOString(), data: obj }),
+      return c.put(dataKey(name), new Response(JSON.stringify({ savedAt: new Date().toISOString(), data: obj }, function (k, v) { return k === '_layer' ? undefined : v; }),
         { headers: { 'Content-Type': 'application/json' } }));
-    }).catch(function () {});
+    }).catch(function (e) { console.warn('saveData', name, e); });
   };
   C.loadData = function (name) {
     if (!('caches' in window)) return Promise.resolve(null);

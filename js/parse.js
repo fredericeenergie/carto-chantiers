@@ -23,7 +23,7 @@ var Parse = (function(){
     return out;
   }
   function folderPath(pm){
-    var parts=[]; for(var p=pm.parentNode;p&&p.nodeType===1;p=p.parentNode){ var ln=p.localName; if(ln==='Folder'||ln==='Document'){ var n=txt(p,'name'); if(n) parts.unshift(n);} }
+    var parts=[]; for(var p=pm.parentNode;p&&p.nodeType===1;p=p.parentNode){ var ln=p.localName; if(ln==='Folder'){ var n=txt(p,'name'); if(n) parts.unshift(n);} }
     return parts;
   }
   function htmlToText(h){
@@ -60,11 +60,11 @@ var Parse = (function(){
         all(ed,'SimpleData').forEach(function(d){ var v=(d.textContent||'').trim(); if(v) data.push([d.getAttribute('name')||'', v]); });
       }
       all(pm,'Point').forEach(function(p){ var c=coords(txt(p,'coordinates'))[0]; if(c) res.points.push({name:name, lat:c[0], lon:c[1], folder:folder, desc:desc, data:data, style:st}); });
-      all(pm,'LineString').forEach(function(l){ var c=coords(txt(l,'coordinates')); if(c.length>1) res.lines.push({name:name, coords:c, style:st}); });
+      all(pm,'LineString').forEach(function(l){ var c=coords(txt(l,'coordinates')); if(c.length>1) res.lines.push({name:name, coords:c, style:st, folder:folder, desc:desc, data:data}); });
       all(pm,'Polygon').forEach(function(pg){
         var rings=[]; var ob=kid(pg,'outerBoundaryIs'); if(ob){ var r=coords(txt(kid(ob,'LinearRing'),'coordinates')); if(r.length>2) rings.push(r); }
         kids(pg,'innerBoundaryIs').forEach(function(ib){ var r=coords(txt(kid(ib,'LinearRing'),'coordinates')); if(r.length>2) rings.push(r); });
-        if(rings.length) res.polys.push({name:name, rings:rings, style:st});
+        if(rings.length) res.polys.push({name:name, rings:rings, style:st, folder:folder, desc:desc, data:data});
       });
     });
     return res;
