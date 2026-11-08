@@ -145,6 +145,16 @@ input,select,textarea{font:inherit;color:inherit}
 .sw i{width:18px;height:12px;border-radius:3px;display:inline-block;border:1px solid rgba(0,0,0,.15)}
 .legend-card{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px}
 .legend-card b{font-size:13px}
+.lyr{background:var(--bg);position:relative}
+.lyr-head{display:flex;align-items:center;gap:4px}
+.lyr-head .grow{flex:1;min-width:0}
+.ico-btn.sm{width:32px;height:32px;font-size:13px;border-radius:8px}
+.ico-btn:disabled{opacity:.35}
+.handle{cursor:grab;touch-action:none;user-select:none;font-size:20px;line-height:1;color:var(--muted);padding:6px 4px;margin-left:-4px}
+.lyr.dragging{z-index:5;box-shadow:var(--shadow);opacity:.95}
+.lyr.dragging .handle{cursor:grabbing}
+.lyr.is-hidden{opacity:.6;background:var(--soft2)}
+.lyr-ph{border:2px dashed var(--accent);border-radius:12px;margin-bottom:8px;background:var(--accent-soft)}
 .op{width:100%;accent-color:var(--accent)}
 
 /* point */

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.0.0';
+  C.VERSION = 'v2.1.0';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Outils ======================= */
@@ -236,7 +236,7 @@
   };
 
   /* ---- Calques ---- */
-  var ITEMS = C.ITEMS = {}, ORDER = { relief: 10, air: 15, admin: 17, geol: 18, agri: 19, env: 20, veg: 25, regl: 30, eau: 35, sol: 40, cad: 45, fer: 50, gaz: 55, elec: 60 };
+  var ITEMS = C.ITEMS = {}, ORDER = { relief: 10, air: 15, admin: 17, geol: 18, agri: 19, env: 20, veg: 25, regl: 30, eau: 35, sol: 40, cad: 45, bati: 47, fer: 50, gaz: 55, elec: 60 };
   C.GROUPS.forEach(function (g) { g.items.forEach(function (it, i) { it.group = g; it.z = (ORDER[g.id] || 30) * 10 + i; ITEMS[it.id] = it; }); });
   var active = C.active = {};
   (U.storeJSON('layers') || ['rte_aer', 'rte_pyl']).forEach(function (id) { if (ITEMS[id]) active[id] = true; });
@@ -254,22 +254,68 @@
       });
     });
   }
+  /* Ordre d'empilement (premier = au-dessus), calques masqués sans être éteints */
+  var hidden = C.hiddenLayers = {};
+  (U.storeJSON('hiddenLayers') || []).forEach(function (id) { if (active[id]) hidden[id] = true; });
+  var order = C.layerOrder = (U.storeJSON('layerOrder') || []).filter(function (id, i, arr) { return active[id] && arr.indexOf(id) === i; });
+  function insertNatural(id) {
+    var z = ITEMS[id].z, i = 0;
+    while (i < order.length && ITEMS[order[i]].z > z) i++;
+    order.splice(i, 0, id);
+  }
+  Object.keys(active).sort(function (a, b) { return ITEMS[b].z - ITEMS[a].z; }).forEach(function (id) { if (order.indexOf(id) < 0) insertNatural(id); });
+  function saveLayerState() {
+    U.storeJSON('layers', order.slice());
+    U.storeJSON('layerOrder', order.slice());
+    U.storeJSON('hiddenLayers', Object.keys(hidden));
+  }
+  function applyOrder() {
+    var n = order.length;
+    order.forEach(function (id, i) {
+      (live[id] || []).forEach(function (l, k) { if (l.setZIndex) l.setZIndex((n - i) * 4 + k + 10); });
+    });
+  }
+  C.isVectorItem = function (it) { return !!it.special || !it.defs; };
+  C.opacityOf = function (id) { var it = ITEMS[id]; return opac[id] != null ? opac[id] : ((it && it.opacity) || 1); };
   C.setActive = function (id, on) {
     var it = ITEMS[id]; if (!it) return;
     if (on) {
       active[id] = true;
+      if (order.indexOf(id) < 0) insertNatural(id);
       if (!live[id]) live[id] = buildItem(it);
-      live[id].forEach(function (l) { if (!map.hasLayer(l)) l.addTo(map); });
-      if (it.special === 'vigicrues') refreshVigicrues();
-      if (it.special === 'veg_rte') refreshVector(vegCfg);
-      if (it.special === 'rte_num') refreshVector(rteNumCfg);
-      if (it.minZoom && map.getZoom() < it.minZoom) U.toast('« ' + it.label + ' » : visible en zoomant davantage', 2500);
+      applyOrder();
+      if (!hidden[id]) {
+        live[id].forEach(function (l) { if (!map.hasLayer(l)) l.addTo(map); });
+        if (it.special === 'vigicrues') refreshVigicrues();
+        if (it.special === 'veg_rte') refreshVector(vegCfg);
+        if (it.special === 'rte_num') refreshVector(rteNumCfg);
+        if (it.minZoom && map.getZoom() < it.minZoom) U.toast('« ' + it.label + ' » : visible en zoomant davantage', 2500);
+      }
     } else {
-      delete active[id];
+      delete active[id]; delete hidden[id];
+      var i = order.indexOf(id); if (i >= 0) order.splice(i, 1);
       (live[id] || []).forEach(function (l) { map.removeLayer(l); });
+      applyOrder();
     }
-    U.storeJSON('layers', Object.keys(active));
+    saveLayerState();
     C.updateLayerCount();
+  };
+  C.setHidden = function (id, h) {
+    if (!active[id]) return;
+    if (h) { hidden[id] = true; (live[id] || []).forEach(function (l) { map.removeLayer(l); }); saveLayerState(); }
+    else { delete hidden[id]; saveLayerState(); C.setActive(id, true); }
+  };
+  C.moveLayer = function (id, to) {
+    var i = order.indexOf(id); if (i < 0) return;
+    to = Math.max(0, Math.min(order.length - 1, to)); if (to === i) return;
+    order.splice(i, 1); order.splice(to, 0, id);
+    applyOrder(); saveLayerState();
+  };
+  C.setLayerOrder = function (ids) {
+    var next = ids.filter(function (id) { return active[id]; });
+    order.forEach(function (id) { if (next.indexOf(id) < 0) next.push(id); });
+    order.length = 0; next.forEach(function (id) { order.push(id); });
+    applyOrder(); saveLayerState();
   };
   C.setOpacity = function (id, v) {
     opac[id] = v; U.storeJSON('opacity', opac);

@@ -36,7 +36,11 @@
     rpg: 'RPG 2025 (ASP / IGN)',
     lidar: 'LiDAR HD (IGN)',
     admin: 'Admin Express (IGN)',
-    brgm: 'BRGM — carte géologique (en essai)'
+    brgm: 'BRGM — carte géologique, via IGN Géoplateforme',
+    bdtopo: 'BD TOPO (IGN)',
+    histo: 'IGN — photos aériennes 1950-1965',
+    irc: 'IGN — photos infrarouges',
+    scan1950: 'IGN — carte au 1/50 000 type 1950'
   };
   var WMSR = 'https://data.geopf.fr/wms-r/wms';
   var LEG = 'https://data.geopf.fr/annexes/ressources/legendes/';
@@ -48,7 +52,13 @@
       def: { kind: 'xyz', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', native: [0, 19] },
       noOffline: true },
     { id: 'plan', label: 'Carte IGN', hint: 'Plan IGN : routes, chemins, lieux-dits', src: SRC.ign,
-      def: ign('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2', 'image/png', 'PM', [0, 19]), offline: 17, avgKB: 14 }
+      def: ign('GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2', 'image/png', 'PM', [0, 19]), offline: 17, avgKB: 14 },
+    { id: 'irc', label: 'Infrarouge IGN', hint: 'Végétation vivante en rouge vif : utile pour l\'élagage', src: SRC.irc,
+      def: ign('ORTHOIMAGERY.ORTHOPHOTOS.IRC', 'image/jpeg', 'PM_6_19', [6, 19]), offline: 18, avgKB: 18 },
+    { id: 'histo', label: 'Photos 1950-1965', hint: 'Voir l\'historique d\'un site : remblais, carrières, anciens tracés', src: SRC.histo,
+      def: ign('ORTHOIMAGERY.ORTHOPHOTOS.1950-1965', 'image/png', 'PM_0_18', [0, 18], 'BDORTHOHISTORIQUE'), offline: 17, avgKB: 45 },
+    { id: 'scan1950', label: 'Carte IGN 1950', hint: 'Ancienne carte au 1/50 000', src: SRC.scan1950,
+      def: ign('GEOGRAPHICALGRIDSYSTEMS.MAPS.SCAN50.1950', 'image/jpeg', 'PM_3_15', [3, 15], 'SCAN50_1950'), offline: 15, avgKB: 22 }
   ];
 
   var GROUPS = [
@@ -154,8 +164,13 @@
     ]},
     { id: 'geol', label: 'Géologie', items: [
       { id: 'geologie', label: 'Carte géologique 1/50 000', src: SRC.brgm, offline: 15, opacity: 0.6,
-        hint: 'Serveur BRGM non vérifié : peut ne rien afficher',
-        defs: [wms('https://geoservices.brgm.fr/geologie', 'SCAN_H_GEOL50', [6, 17])] }
+        hint: 'Nature des sols et roches (carte BRGM harmonisée)',
+        defs: [ign('BRGM_SCAN_D_GEOL50', 'image/jpeg', 'PM_0_15', [0, 15])] }
+    ]},
+    { id: 'bati', label: 'Bâtiments', items: [
+      { id: 'batiments', label: 'Bâtiments (BD TOPO)', src: SRC.bdtopo, info: true, offline: 17, minZoom: 15,
+        hint: 'Touche un bâtiment : nature, usage, hauteur',
+        defs: [wms('https://data.geopf.fr/wms-v/ows', 'BDTOPO-GEOPO-BATI_WLD_WGS84G', [13, 19])] }
     ]},
     { id: 'admin', label: 'Limites administratives', items: [
       { id: 'communes', label: 'Limites des communes', src: SRC.admin, offline: 15, legendUrl: LEG + 'ADMINEXPRESS-COG-legend.png',
@@ -225,6 +240,12 @@
         [b.s, b.w, b.n, b.e].map(function (v) { return v.toFixed(5); }).join(',') + ',urn:ogc:def:crs:EPSG::4326';
     };
   }
+  function ignWfs(type) {
+    return function (b) {
+      return 'https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=' + type +
+        '&OUTPUTFORMAT=application/json&SRSNAME=EPSG:4326&COUNT=5000&BBOX=' + [b.s, b.w, b.n, b.e].map(function (v) { return v.toFixed(5); }).join(',') + ',urn:ogc:def:crs:EPSG::4326';
+    };
+  }
   var VECTORS = [
     { id: 'v_rte_aer', label: 'RTE — lignes aériennes', folder: 'Réseaux › RTE', color: '#1565c0', url: gbWfs('rte', 'lignes_aeriennes'), name: ['nom_ligne', 'code_ligne'] },
     { id: 'v_rte_pyl', label: 'RTE — pylônes', folder: 'Réseaux › RTE', color: '#1565c0', url: gbWfs('rte', 'pylones'), name: ['numero_pylone'] },
@@ -239,6 +260,7 @@
     { id: 'v_hydro', label: 'Hydrocarbures', folder: 'Réseaux › Canalisations', color: '#4e342e', url: grWfs('C_HYDROCARBURES'), name: ['desc_ouv'] },
     { id: 'v_chim', label: 'Produits chimiques', folder: 'Réseaux › Canalisations', color: '#7b1fa2', url: grWfs('C_PRODUITS_CHIM'), name: ['desc_ouv'] },
     { id: 'v_sncf', label: 'SNCF — lignes', folder: 'Réseaux › SNCF', color: '#37474f', url: gbWfs('sncf', 'ligne_ferroviaire'), name: ['lib_ligne', 'code_ligne'] },
+    { id: 'v_bati', label: 'Bâtiments (BD TOPO)', folder: 'Bâti', color: '#8d6e63', url: ignWfs('BDTOPO_V3:batiment'), name: ['usage_1', 'nature'] },
     { id: 'v_sncf_pn', label: 'SNCF — passages à niveau', folder: 'Réseaux › SNCF', color: '#37474f', url: gbWfs('sncf', 'passage_niveau'), name: ['libelle', 'num_pn'] }
   ];
   function communesUrl(b) {

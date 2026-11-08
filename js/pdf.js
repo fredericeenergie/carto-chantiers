@@ -133,9 +133,10 @@
     var out = [];
     var b = C.BASES.filter(function (x) { return x.id === baseId; })[0] || C.BASES[0];
     out.push({ def: b.def, opacity: 1, label: b.label });
-    if (withOverlays) Object.keys(C.active).forEach(function (id) {
-      var it = C.ITEMS[id]; if (!it || !it.defs) return;
-      it.defs.forEach(function (d) { out.push({ def: d, opacity: it.opacity || 1, label: it.label, item: it }); });
+    // même empilement et même transparence qu'à l'écran : du dessous vers le dessus, sans les calques masqués
+    if (withOverlays) C.layerOrder.slice().reverse().forEach(function (id) {
+      var it = C.ITEMS[id]; if (!it || !it.defs || C.hiddenLayers[id]) return;
+      it.defs.forEach(function (d) { out.push({ def: d, opacity: C.opacityOf(id), label: it.label, item: it }); });
     });
     return out;
   }

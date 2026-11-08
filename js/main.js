@@ -5,36 +5,90 @@
 
   /* ======================= Onglet Calques ======================= */
   C.tabs.calques = function (el) {
-    var act = Object.keys(C.active);
+    var act = C.layerOrder.slice(), n = act.length;
     var openG = U.storeJSON('openGroups') || {};
-    var html = '<div class="row2" style="margin-top:6px"><b style="flex:1">Affichés (' + act.length + ')</b>' + (act.length ? '<button class="btn ghost" id="lyNone">Tout masquer</button>' : '') + '</div>';
-    html += act.length ? act.map(function (id) {
-      var it = C.ITEMS[id];
-      var op = (U.storeJSON('opacity') || {})[id]; if (op == null) op = it.opacity || 1;
-      return '<div class="legend-card"><div class="row2"><b style="flex:1">' + esc(it.label) + '</b><button class="ico-btn" data-off="' + id + '" title="Masquer">×</button></div>' +
-        '<div class="muted small">' + esc(id === 'vigicrues' && C.vigiInfo ? 'Vigicrues — bulletin du ' + U.fmtDate(C.vigiInfo.bulletin, true) + (C.vigiInfo.live ? '' : ' (copie)') : it.src) + (it.minZoom ? ' · visible à partir du zoom ' + it.minZoom : '') + '</div>' +
-        '<div class="legend">' + C.legendHtml(it) + '</div>' +
-        (it.defs ? '<label class="row2 small muted" style="gap:6px">Opacité<input class="op" type="range" min="0.2" max="1" step="0.05" value="' + op + '" data-op="' + id + '" style="flex:1"></label>' : '') + '</div>';
-    }).join('') : '<p class="muted">Aucun calque affiché. Choisis ci-dessous.</p>';
+    var html = '<div class="row2" style="margin-top:6px"><b style="flex:1">Affichés (' + n + ')</b>' + (n ? '<button class="btn ghost" id="lyNone">Tout éteindre</button>' : '') + '</div>';
+    if (n > 1) html += '<p class="muted small" style="margin:2px 0 8px">Le premier de la liste passe au-dessus. Fais glisser ⠿ ou utilise ▲ ▼.</p>';
+    html += n ? '<div id="lyList">' + act.map(function (id, i) {
+      var it = C.ITEMS[id], hid = !!C.hiddenLayers[id], op = C.opacityOf(id), vec = C.isVectorItem(it);
+      return '<div class="legend-card lyr' + (hid ? ' is-hidden' : '') + '" data-card="' + id + '">' +
+        '<div class="lyr-head"><span class="handle" data-drag="' + id + '" title="Faire glisser pour changer l\'ordre" aria-label="Déplacer">⠿</span>' +
+        '<b class="grow">' + esc(it.label) + '</b>' +
+        '<button class="ico-btn sm" data-up="' + id + '" title="Monter (passer au-dessus)"' + (i === 0 ? ' disabled' : '') + '>▲</button>' +
+        '<button class="ico-btn sm" data-down="' + id + '" title="Descendre (passer en dessous)"' + (i === n - 1 ? ' disabled' : '') + '>▼</button>' +
+        '<button class="ico-btn sm" data-eye="' + id + '" title="' + (hid ? 'Montrer' : 'Masquer sans éteindre') + '">' + (hid ? '🙈' : '👁') + '</button>' +
+        '<button class="ico-btn sm" data-off="' + id + '" title="Éteindre">×</button></div>' +
+        '<div class="muted small">' + esc(id === 'vigicrues' && C.vigiInfo ? 'Vigicrues — bulletin du ' + U.fmtDate(C.vigiInfo.bulletin, true) + (C.vigiInfo.live ? '' : ' (copie)') : it.src) + (it.minZoom ? ' · visible à partir du zoom ' + it.minZoom : '') + (hid ? ' · <b>masqué</b>' : '') + '</div>' +
+        (hid ? '' : '<div class="legend">' + C.legendHtml(it) + '</div>') +
+        (vec ? '<div class="muted small">Tracé dessiné : toujours au-dessus des calques images.</div>' :
+          '<label class="row2 small muted" style="gap:6px">Transparence<input class="op" type="range" min="0" max="0.9" step="0.05" value="' + (1 - op).toFixed(2) + '" data-op="' + id + '" style="flex:1"><span class="opv" style="min-width:34px;text-align:right">' + Math.round((1 - op) * 100) + ' %</span></label>') +
+        '</div>';
+    }).join('') + '</div>' : '<p class="muted">Aucun calque affiché. Choisis ci-dessous.</p>';
     html += '<h3>Tous les calques</h3>' + C.GROUPS.map(function (g) {
-      var n = g.items.filter(function (it) { return C.active[it.id]; }).length;
-      return '<div class="grp' + (openG[g.id] ? ' open' : '') + '" data-g="' + g.id + '"><button type="button"><span>' + esc(g.label) + '</span>' + (n ? '<span class="n">' + n + '</span>' : '') + '<span class="chev">›</span></button><div class="items">' +
+      var k = g.items.filter(function (it) { return C.active[it.id]; }).length;
+      return '<div class="grp' + (openG[g.id] ? ' open' : '') + '" data-g="' + g.id + '"><button type="button"><span>' + esc(g.label) + '</span>' + (k ? '<span class="n">' + k + '</span>' : '') + '<span class="chev">›</span></button><div class="items">' +
         g.items.map(function (it) {
           return '<label class="check"><input type="checkbox" data-id="' + it.id + '"' + (C.active[it.id] ? ' checked' : '') + '><span class="grow">' + esc(it.label) +
             (it.hint ? '<span class="hint">' + esc(it.hint) + '</span>' : '') + '<span class="src">' + esc(it.src) + '</span></span></label>';
         }).join('') + '</div></div>';
     }).join('') + '<p class="muted small" style="margin-top:12px">Données publiques indicatives : elles ne remplacent jamais une DT-DICT.</p>';
-    el.innerHTML = html;
+    var keepScroll = el.scrollTop;
+    el.innerHTML = html; el.scrollTop = keepScroll;
+    function redraw() { C.tabs.calques(el); }
     el.querySelectorAll('.grp > button').forEach(function (b) {
       b.onclick = function () { var g = b.parentNode; g.classList.toggle('open'); openG[g.getAttribute('data-g')] = g.classList.contains('open'); U.storeJSON('openGroups', openG); };
     });
-    el.querySelectorAll('[data-id]').forEach(function (c) { c.onchange = function () { C.setActive(c.getAttribute('data-id'), c.checked); setTimeout(function () { C.tabs.calques(el); }, 50); }; });
-    el.querySelectorAll('[data-off]').forEach(function (b) { b.onclick = function () { C.setActive(b.getAttribute('data-off'), false); C.tabs.calques(el); }; });
-    el.querySelectorAll('[data-op]').forEach(function (r) { r.oninput = function () { C.setOpacity(r.getAttribute('data-op'), +r.value); }; });
-    if ($('lyNone')) $('lyNone').onclick = function () { Object.keys(C.active).forEach(function (id) { C.setActive(id, false); }); C.tabs.calques(el); };
+    el.querySelectorAll('[data-id]').forEach(function (c) { c.onchange = function () { C.setActive(c.getAttribute('data-id'), c.checked); setTimeout(redraw, 50); }; });
+    el.querySelectorAll('[data-off]').forEach(function (b) { b.onclick = function () { C.setActive(b.getAttribute('data-off'), false); redraw(); }; });
+    el.querySelectorAll('[data-eye]').forEach(function (b) { b.onclick = function () { var id = b.getAttribute('data-eye'); C.setHidden(id, !C.hiddenLayers[id]); redraw(); }; });
+    el.querySelectorAll('[data-up]').forEach(function (b) { b.onclick = function () { var id = b.getAttribute('data-up'); C.moveLayer(id, C.layerOrder.indexOf(id) - 1); redraw(); }; });
+    el.querySelectorAll('[data-down]').forEach(function (b) { b.onclick = function () { var id = b.getAttribute('data-down'); C.moveLayer(id, C.layerOrder.indexOf(id) + 1); redraw(); }; });
+    el.querySelectorAll('[data-op]').forEach(function (r) {
+      r.oninput = function () { C.setOpacity(r.getAttribute('data-op'), Math.round((1 - r.value) * 100) / 100); r.nextElementSibling.textContent = Math.round(r.value * 100) + ' %'; };
+    });
+    if ($('lyNone')) $('lyNone').onclick = function () {
+      C.confirmDlg('Éteindre les ' + n + ' calques affichés ?', 'Tout éteindre').then(function (ok) { if (!ok) return; C.layerOrder.slice().forEach(function (id) { C.setActive(id, false); }); redraw(); });
+    };
+    // glisser-déposer (doigt ou souris) sur la poignée ⠿
+    var list = $('lyList');
+    if (list) list.querySelectorAll('[data-drag]').forEach(function (h) {
+      h.addEventListener('pointerdown', function (ev) {
+        ev.preventDefault();
+        var card = h.closest('.lyr'), startY = ev.clientY, startTop = card.offsetTop, moved = false;
+        h.setPointerCapture(ev.pointerId);
+        card.classList.add('dragging');
+        function move(e) {
+          var dy = e.clientY - startY; if (Math.abs(dy) > 3) moved = true;
+          var cards = [].slice.call(list.children).filter(function (c) { return c !== card; });
+          var before = null;
+          for (var i = 0; i < cards.length; i++) { var r = cards[i].getBoundingClientRect(); if (e.clientY < r.top + r.height / 2) { before = cards[i]; break; } }
+          var ph = list.querySelector('.lyr-ph');
+          if (!ph) { ph = document.createElement('div'); ph.className = 'lyr-ph'; ph.style.height = card.offsetHeight + 'px'; }
+          if (before) list.insertBefore(ph, before); else list.appendChild(ph);
+          card.style.transform = 'translateY(' + (dy - (card.offsetTop - startTop)) + 'px)';
+          // défilement automatique près des bords du panneau
+          var er = el.getBoundingClientRect();
+          if (e.clientY < er.top + 40) el.scrollTop -= 12; else if (e.clientY > er.bottom - 40) el.scrollTop += 12;
+        }
+        function up() {
+          h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+          var ph = list.querySelector('.lyr-ph');
+          if (ph) { list.insertBefore(card, ph); ph.remove(); }
+          card.classList.remove('dragging'); card.style.transform = '';
+          if (moved) { C.setLayerOrder([].slice.call(list.querySelectorAll('[data-card]')).map(function (c) { return c.getAttribute('data-card'); })); redraw(); }
+        }
+        h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+      });
+    });
     // les couleurs relevées sur les tuiles apparaissent quand celles-ci sont chargées
-    if (act.some(function (id) { return !C.legendUrls(C.ITEMS[id]).length && C.ITEMS[id].defs; })) {
-      clearTimeout(C._legT); C._legT = setTimeout(function () { if (el.classList.contains('on')) el.querySelectorAll('.legend-card').forEach(function (card, i) { var it = C.ITEMS[act[i]]; if (it && it.defs && !C.legendUrls(it).length) card.querySelector('.legend').innerHTML = C.legendHtml(it); }); }, 2500);
+    if (act.some(function (id) { return !C.legendUrls(C.ITEMS[id]).length && C.ITEMS[id].defs && !C.hiddenLayers[id]; })) {
+      clearTimeout(C._legT); C._legT = setTimeout(function () {
+        if (!el.classList.contains('on')) return;
+        el.querySelectorAll('[data-card]').forEach(function (card) {
+          var it = C.ITEMS[card.getAttribute('data-card')], lg = card.querySelector('.legend');
+          if (it && it.defs && lg && !C.legendUrls(it).length) lg.innerHTML = C.legendHtml(it);
+        });
+      }, 2500);
     }
   };
   map.on('zoomend', function () { C.refreshTab('calques'); });
@@ -43,7 +97,7 @@
   C.tabs.carte = function (el) {
     var reg = C.offlineRegistry(), a = C.activeDoc();
     var html = '<h3>Fond de carte</h3><div class="tiles">' + C.BASES.map(function (b) {
-      return '<button class="tile' + (C.curBase === b.id ? ' on' : '') + '" data-base="' + b.id + '"><span class="e">' + (b.id === 'plan' ? '🗺' : '🛰') + '</span><b>' + esc(b.label) + '</b><span>' + esc(b.hint) + '</span></button>';
+      return '<button class="tile' + (C.curBase === b.id ? ' on' : '') + '" data-base="' + b.id + '"><span class="e">' + ({ plan: '🗺', irc: '🌳', histo: '🕰', scan1950: '📜' }[b.id] || '🛰') + '</span><b>' + esc(b.label) + '</b><span>' + esc(b.hint) + '</span></button>';
     }).join('') + '</div>';
     html += '<h3>Hors ligne</h3><div class="card" style="margin-top:0">' + (a ? '<div class="row2"><b style="flex:1">' + esc(U.baseName(a.name)) + '</b>' + (reg[C.docKey(a)] ? '<span class="tag ok">prêt</span>' : '<span class="tag grey">non préparé</span>') + '</div>' +
       (reg[C.docKey(a)] ? '<div class="muted small">Préparé le ' + U.fmtDate(reg[C.docKey(a)].date, true) + ' — ' + U.fmtBytes(reg[C.docKey(a)].bytes) + '</div>' : '') +
@@ -103,8 +157,10 @@
     var d = C.openDlg({ title: 'Hors ligne — ' + U.baseName(a.name), body:
       (reg ? '<p class="muted">Prêt depuis le ' + U.fmtDate(reg.date, true) + ' — ' + U.fmtBytes(reg.bytes) + (reg.failed ? ' (' + reg.failed + ' tuiles manquantes)' : '') + '</p>' : '') +
       '<p class="muted">Télécharge tout dans un rayon de 1 km autour du chantier et de ses ajouts terrain. Le fichier, les fiches et le dernier bulletin Vigicrues sont aussi gardés.</p>' +
-      '<label class="check"><input type="checkbox" id="ofOrtho" checked><span class="grow">Satellite IGN</span></label>' +
-      '<label class="check"><input type="checkbox" id="ofPlan" checked><span class="grow">Carte IGN</span></label>' +
+      C.BASES.filter(function (b) { return !b.noOffline; }).map(function (b) {
+        var on = b.id === 'ortho' || b.id === 'plan' || b.id === C.curBase;
+        return '<label class="check"><input type="checkbox" data-ofbase="' + b.id + '"' + (on ? ' checked' : '') + '><span class="grow">' + esc(b.label) + '</span></label>';
+      }).join('') +
       '<label class="check"><input type="checkbox" id="ofActive" checked><span class="grow">Calques affichés (' + act.length + ')<span class="hint">' + esc(act.map(function (id) { return C.ITEMS[id].label; }).join(', ') || 'aucun') + '</span></span></label>' +
       '<label class="check"><input type="checkbox" id="ofAll"><span class="grow">Tous les autres calques aussi</span></label>' +
       '<p class="muted" id="ofEst">Estimation…</p><div id="ofProg"></div>',
@@ -114,7 +170,8 @@
       if (d.q('#ofActive').checked) items = items.concat(act);
       if (d.q('#ofAll').checked) items = items.concat(Object.keys(C.ITEMS));
       items = items.filter(function (v, i, arr) { return arr.indexOf(v) === i && C.ITEMS[v].special !== 'vigicrues'; });
-      return { bases: { ortho: d.q('#ofOrtho').checked, plan: d.q('#ofPlan').checked }, items: items };
+      var bases = {}; d.body.querySelectorAll('[data-ofbase]').forEach(function (c) { bases[c.getAttribute('data-ofbase')] = c.checked; });
+      return { bases: bases, items: items };
     }
     function est() { var p = offlinePlan(a, opts()); d.q('#ofEst').textContent = '≈ ' + p.urls.length.toLocaleString('fr-FR') + ' tuiles, environ ' + U.fmtBytes(p.estKB * 1024) + ' (estimation).'; }
     d.body.addEventListener('change', est); setTimeout(est, 30);
@@ -174,7 +231,7 @@
       C.promptDlg('Nouveau paquet', 'Nom du paquet', a ? U.baseName(a.name) : 'Chantier', 'Créer').then(function (n) {
         if (!n) return;
         C.confirmDlg('Préparer aussi TOUS les autres calques hors ligne sur le téléphone ? (plus lourd)', 'Oui, tous').then(function (all) {
-          var pq = { nom: n, fichiers: files.map(function (x) { return { id: x.id, name: x.name, parent: x.parent }; }), actif: a && a.id, calques: Object.keys(C.active), fond: C.curBase, tous: all };
+          var pq = { nom: n, fichiers: files.map(function (x) { return { id: x.id, name: x.name, parent: x.parent }; }), actif: a && a.id, calques: C.layerOrder.slice(), masques: Object.keys(C.hiddenLayers), opacites: C.layerOrder.reduce(function (o, id) { o[id] = C.opacityOf(id); return o; }, {}), fond: C.curBase, tous: all };
           C.postPorte('paquetEcrire', { paquet: pq }).then(function (j) { U.toast('Paquet « ' + n + ' » enregistré', 3000); paquetsDialog(); }).catch(function (e) { U.toast(e.message || String(e)); });
         });
       });
@@ -185,6 +242,9 @@
     U.busy(true, 'Ouverture du paquet « ' + p.nom + ' »…');
     Object.keys(C.active).forEach(function (id) { if (p.calques.indexOf(id) < 0) C.setActive(id, false); });
     p.calques.forEach(function (id) { if (!C.active[id]) C.setActive(id, true); });
+    C.setLayerOrder(p.calques);
+    Object.keys(p.opacites || {}).forEach(function (id) { C.setOpacity(id, p.opacites[id]); });
+    C.layerOrder.forEach(function (id) { var h = (p.masques || []).indexOf(id) >= 0; if (h !== !!C.hiddenLayers[id]) C.setHidden(id, h); });
     C.setBase(p.fond);
     var chain = Promise.resolve();
     p.fichiers.forEach(function (f) { chain = chain.then(function () { if (C.docs.some(function (d) { return d.id === f.id; })) return; return C.openDriveFile(f.id, { quiet: true, parent: f.parent }).catch(function () {}); }); });
