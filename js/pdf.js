@@ -16,7 +16,7 @@
     return new Promise(function (ok) { var im = new Image(); im.onload = function () { ok(im.width / im.height || 2); }; im.onerror = function () { ok(2); }; im.src = src; });
   }
   function txt(s) { // caractères absents des polices standard du PDF
-    return String(s == null ? '' : s).replace(/[≈]/g, '~').replace(/[✓✔]/g, 'v').replace(/[⚙★☁⏳📷📍]/g, '').replace(/[  ]/g, ' ').replace(/[^\x00-\xFFŒœŠšŸŽžƒˆ˜–—‘’‚“”„†‡•…‰‹›€™]/g, '');
+    return String(s == null ? '' : s).replace(/γ/g, 'gamma').replace(/[≈]/g, '~').replace(/[✓✔]/g, 'v').replace(/[⚙★☁⏳📷📍]/g, '').replace(/[  ]/g, ' ').replace(/[^\x00-\xFFŒœŠšŸŽžƒˆ˜–—‘’‚“”„†‡•…‰‹›€™]/g, '');
   }
   function merc(lat, lon) { return [R * lon * Math.PI / 180, R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360))]; }
   function unmerc(x, y) { return [(2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI, x / R * 180 / Math.PI]; }
@@ -123,7 +123,7 @@
     var cv = document.createElement('canvas'); cv.width = view.w; cv.height = view.h;
     var ctx = cv.getContext('2d'); ctx.fillStyle = '#e6eaee'; ctx.fillRect(0, 0, view.w, view.h);
     var chain = Promise.resolve();
-    layers.forEach(function (l) { chain = chain.then(function () { return drawTiles(ctx, view, l.def, l.opacity); }); });
+    layers.forEach(function (l) { chain = chain.then(function () { return l.vector ? l.vector(ctx, view, l.opacity) : drawTiles(ctx, view, l.def, l.opacity); }); });
     return chain.then(function () {
       drawFeatures(ctx, view, docs, opts);
       if (opts && opts.frames) opts.frames.forEach(function (fr, i) {
@@ -154,7 +154,9 @@
     out.push({ def: b.def, opacity: 1, label: b.label });
     // même empilement et même transparence qu'à l'écran : du dessous vers le dessus, sans les calques masqués
     if (withOverlays) C.layerOrder.slice().reverse().forEach(function (id) {
-      var it = C.ITEMS[id]; if (!it || !it.defs || C.hiddenLayers[id]) return;
+      var it = C.ITEMS[id]; if (!it || C.hiddenLayers[id]) return;
+      if (it.special === 'litho' && C.geology) { out.push({ vector: C.geology.drawView, opacity: C.opacityOf(id), label: it.label, item: it }); return; }
+      if (!it.defs) return;
       it.defs.forEach(function (d) { out.push({ def: d, opacity: C.opacityOf(id), label: it.label, item: it }); });
     });
     return out;
@@ -362,6 +364,8 @@
     var items = []; var seen = {};
     layers.forEach(function (l) { if (l.item && !seen[l.item.id]) { seen[l.item.id] = true; items.push(l.item); } });
     var jobs = items.map(function (it) {
+      var spec = C.legendSpec(it);
+      if (spec) return Promise.resolve({ it: it, ims: [], spec: spec });
       var urls = C.legendUrls(it);
       return Promise.all(urls.map(function (u) { return loadImg(u, 12000); })).then(function (ims) { return { it: it, ims: ims.filter(Boolean) }; });
     });
@@ -369,6 +373,7 @@
       rs.forEach(function (r) {
         var hImg = 0;
         r.ims.forEach(function (im) { hImg += Math.min(40, im.height / im.width * 60); });
+        if (r.spec) hImg = specHeight(pdf, r.spec);
         var need = 7 + hImg;
         if (y + need > 165) { col++; y = 26; x = 12 + col * 95; }
         if (col > 2) return;
@@ -381,11 +386,40 @@
           try { var cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; cv.getContext('2d').drawImage(im, 0, 0); pdf.addImage(cv.toDataURL('image/png'), 'PNG', x, y, w, h); } catch (e) {}
           y += h + 2;
         });
-        if (!r.ims.length) { var cols = C.sampleColors(r.it.id); cols.forEach(function (c, i) { var m = c.match(/\d+/g); pdf.setFillColor(+m[0], +m[1], +m[2]); pdf.rect(x + i * 9, y - 1, 7, 4, 'F'); }); y += 6; }
+        if (r.spec) { y = drawSpec(pdf, r.spec, x, y); }
+        else if (!r.ims.length) { var cols = C.sampleColors(r.it.id); cols.forEach(function (c, i) { var m = c.match(/\d+/g); pdf.setFillColor(+m[0], +m[1], +m[2]); pdf.rect(x + i * 9, y - 1, 7, 4, 'F'); }); y += 6; }
         y += 3;
       });
       footer(pdf, meta, 'Légende des calques affichés', null, null); smallLegend(pdf, 196);
     });
+  }
+  function rgb(h) { h = (h || '#999').replace('#', ''); if (h.length === 3) h = h.replace(/./g, '$&$&'); return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)]; }
+  function specHeight(pdf, spec) {
+    var hh = 0;
+    spec.forEach(function (e) {
+      if (e.k === 'note') hh += 3.2 * pdf.splitTextToSize(txt(e.t), 82).length + 1;
+      else if (e.k === 'ramp') hh += 9; else hh += 4.6;
+    });
+    return hh;
+  }
+  function drawSpec(pdf, spec, x, y) {
+    spec.forEach(function (e) {
+      pdf.setFontSize(7.5); pdf.setTextColor(22, 32, 42); pdf.setFont('helvetica', 'normal');
+      if (e.k === 'title') { pdf.setFont('helvetica', 'bold'); pdf.text(txt(e.t), x, y + 2.5); y += 4.6; return; }
+      if (e.k === 'note') { pdf.setTextColor(93, 107, 120); pdf.setFontSize(6.8); var lines = pdf.splitTextToSize(txt(e.t), 82); pdf.text(lines, x, y + 2.5); y += 3.2 * lines.length + 1; return; }
+      if (e.k === 'ramp') {
+        var n = e.c.length;
+        e.c.forEach(function (c, i) { var v = rgb(c); pdf.setFillColor(v[0], v[1], v[2]); pdf.rect(x + i * 60 / n, y, 60 / n + 0.2, 3.5, 'F'); });
+        pdf.setFontSize(6.8); e.ticks.forEach(function (t, i) { pdf.text(txt(t), x + i * 60 / (e.ticks.length - 1) - (i ? 3 : 0), y + 7); });
+        y += 9; return;
+      }
+      var v = rgb(e.c);
+      if (e.k === 'line' || e.k === 'dash') { pdf.setDrawColor(v[0], v[1], v[2]); pdf.setLineWidth(0.8); pdf.line(x, y + 1.7, x + 7, y + 1.7); pdf.setLineWidth(0.2); }
+      else { pdf.setFillColor(v[0], v[1], v[2]); pdf.setDrawColor(150); pdf.setLineWidth(0.1); pdf.rect(x, y, 7, 3.5, 'FD'); }
+      var lines2 = pdf.splitTextToSize(txt(e.t), 74); pdf.text(lines2[0] + (lines2.length > 1 ? '…' : ''), x + 9, y + 2.8);
+      y += 4.6;
+    });
+    return y + 1;
   }
   function pageTable(pdf, doc, list, meta) {
     var cols = [['N°', 14], ['Type', 26], ['Famille / modèle', 34], ['Latitude', 22], ['Longitude', 22], ['X L93', 24], ['Y L93', 26], ['Commune', 48], ['Parcelle', 36], ['Statut', 20]];

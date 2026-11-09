@@ -1,4 +1,4 @@
-# Carto chantiers — v2.2
+# Carto chantiers — v2.3
 
 Appli de cartographie de chantiers de lignes aériennes. Elle s'utilise sur **téléphone** (comme une appli, avec hors ligne) et sur **ordinateur** (dans Chrome ou Edge, sans rien installer).
 
@@ -24,6 +24,14 @@ Adresse : https://fredericeenergie.github.io/carto-chantiers/
 - À l'ordinateur : **glisse-dépose** des KMZ, KML, GPX, GeoJSON sur la carte pour les ouvrir, ou un tableau CSV / Excel pour l'importer dans les fiches. Pendant un tracé : **Entrée** valide, **Retour arrière** ou **Ctrl+Z** annule le dernier point.
 - Les photos sont réduites à 2 560 px avant l'envoi : l'envoi depuis le terrain est rapide et le Drive reste léger.
 - L'appli démarre instantanément, même sans réseau. Quand une nouvelle version est en ligne, un message propose de **recharger**.
+
+### Légendes et « Que trouve-t-on ici ? »
+- Chaque calque affiché a sa légende dans l'onglet Calques (et dans la page Légende de l'atlas PDF). Quand le service public n'en fournit pas de lisible, l'appli dessine la sienne.
+- **Carte géologique** : clé de lecture (couleur = âge des terrains, lettres F, C, e, j… = notation). Un appui sur la carte donne la famille de roche, le numéro et le nom de la feuille 1/50 000, et un lien vers sa **notice BRGM** où chaque code est décrit.
+- **Nature du sous-sol (simplifiée)** : 11 familles (argiles, sables, calcaires, granites…), lisible d'un coup d'œil, disponible hors ligne.
+- **Hauteur LiDAR** : échelle 0 → 30 m et plus ; un appui donne la hauteur mesurée au point.
+- **Environnement** (Natura 2000, ZNIEFF, espaces protégés, PNR, Ramsar) : un appui donne le nom du site et un lien vers sa fiche officielle INPN.
+- Dès qu'un calque interrogeable est allumé, un appui sur la carte affiche directement ces informations.
 
 ### Où vont les données
 - **Fiches pylônes** : un Google Sheet par chantier, « <chantier> - fiches pylônes », rangé à côté du fichier du chantier. Une ligne par pylône, avec des listes déroulantes. Il se modifie aussi bien dans l'appli que dans Sheets.

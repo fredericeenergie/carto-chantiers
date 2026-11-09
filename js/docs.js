@@ -497,6 +497,7 @@
     showPoint(title, ll || centerOf(f), doc, f);
   }
   C.selectFeature = select;
+  var infoSeq = 0, infoReq = 0;
   function centerOf(f) {
     var cs = f.kind === 'line' ? f.coords : f.coords[0], la = 0, lo = 0;
     cs.forEach(function (c) { la += c[0]; lo += c[1]; });
@@ -538,11 +539,19 @@
     }
     $('ptMeta').innerHTML = '<div class="meta">' + meta.join('\n') + '</div>' + (f && f.photos && f.photos.length ? '<div class="photos">' + f.photos.map(photoThumb).join('') + '</div>' : '');
     if (f && f.pylon && C.fiches) C.fiches.summaryInto($('ptMeta'), doc, f);
+    var mySeq = ++infoSeq;
+    function runInfo() {
+      var tok = ++infoReq;
+      $('ptInfos').innerHTML = '<p class="muted">Recherche…</p>';
+      C.queryInfo(L.latLng(lat, lon)).then(function (h) { if (tok === infoReq && mySeq === infoSeq) $('ptInfos').innerHTML = h; });
+    }
+    // un appui sur la carte avec un calque interrogeable allumé (géologie, environnement, hauteur LiDAR…) affiche tout de suite ce qu'il y a
+    if (!f && Object.keys(C.active).some(function (id) { var it = C.ITEMS[id]; return it && it.info && !C.hiddenLayers[id] && (it.special_info || U.isOnline()); })) setTimeout(runInfo, 30);
     $('ptActs').querySelectorAll('[data-act]').forEach(function (b) {
       b.onclick = function () {
         var a = b.getAttribute('data-act');
         if (a === 'fiche') C.fiches.open(doc, f);
-        if (a === 'info') { $('ptInfos').innerHTML = '<p class="muted">Recherche…</p>'; C.queryInfo(L.latLng(lat, lon)).then(function (h) { $('ptInfos').innerHTML = h; }); }
+        if (a === 'info') runInfo();
         if (a === 'copy') { var t = lat.toFixed(6) + ', ' + lon.toFixed(6); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { U.toast('Coordonnées copiées'); }, function () { U.toast(t, 6000); }); }
         if (a === 'add') { clearSelection(); C.tools.addTerrain('point', [L.latLng(lat, lon)]); }
         if (a === 'tedit') C.tools.editTerrain(doc, f);

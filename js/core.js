@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.2.2';
+  C.VERSION = 'v2.3.0';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Outils ======================= */
@@ -371,6 +371,7 @@
     if (it.special === 'vigicrues') return [vigiLayer];
     if (it.special === 'veg_rte') return [vegLayer];
     if (it.special === 'rte_num') return [rteNumLayer];
+    if (it.special === 'litho') return [new C.geology.GridLayer({ maxZoom: 21, minZoom: 5, keepBuffer: 2, opacity: opac[it.id] != null ? opac[it.id] : (it.opacity || 1), zIndex: it.z * 4, attribution: 'BRGM' })];
     return it.defs.map(function (d, k) {
       return new C.FallbackLayer(d, {
         maxZoom: 21, maxNativeZoom: d.native[1], minZoom: Math.max(it.minZoom || 0, d.native[0]), keepBuffer: 3,
@@ -399,7 +400,7 @@
       (live[id] || []).forEach(function (l, k) { if (l.setZIndex) l.setZIndex((n - i) * 4 + k + 10); });
     });
   }
-  C.isVectorItem = function (it) { return !!it.special || !it.defs; };
+  C.isVectorItem = function (it) { return it.special !== 'litho' && (!!it.special || !it.defs); };
   C.opacityOf = function (id) { var it = ITEMS[id]; return opac[id] != null ? opac[id] : ((it && it.opacity) || 1); };
   C.setActive = function (id, on) {
     var it = ITEMS[id]; if (!it) return;
@@ -475,10 +476,57 @@
       return 'rgb(' + r + ',' + g + ',' + b + ')';
     });
   };
+  function swatch(e) {
+    var c = U.esc(e.c || '#999');
+    if (e.k === 'line') return '<i class="lg-line" style="background:' + c + '"></i>';
+    if (e.k === 'dash') return '<i class="lg-line dash" style="color:' + c + '"></i>';
+    if (e.k === 'dot') return '<i class="lg-dot" style="background:' + c + '"></i>';
+    return '<i style="background:' + c + '"></i>';
+  }
+  function legendList(list) {
+    return '<div class="lg-list">' + list.map(function (e) {
+      if (e.k === 'note') return '<p class="muted small lg-note">' + U.esc(e.t) + '</p>';
+      if (e.k === 'ramp') return '<div class="lg-ramp"><div class="lg-bar" style="background:linear-gradient(90deg,' + e.c.join(',') + ')"></div><div class="ticks">' + e.ticks.map(function (t) { return '<span>' + U.esc(t) + '</span>'; }).join('') + '</div></div>';
+      if (e.k === 'title') return '<div class="lg-title">' + U.esc(e.t) + '</div>';
+      return '<div class="lg-row"><span class="sw">' + swatch(e) + '</span><span>' + U.esc(e.t) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  C.legendList = legendList;
+  // Clé de lecture de la carte géologique : couleur = âge des terrains, lettres = notation
+  var GEOL_KEY = [
+    { k: 'title', t: 'Couleur = âge des terrains' },
+    { k: 'fill', c: '#fdf6c8', t: 'Quaternaire (alluvions, limons, éboulis) — moins de 2,6 millions d\'années' },
+    { k: 'fill', c: '#ffd36b', t: 'Tertiaire (sables, argiles, calcaires lacustres)' },
+    { k: 'fill', c: '#9fd38c', t: 'Crétacé (craie, marnes, sables verts)' },
+    { k: 'fill', c: '#8fbde6', t: 'Jurassique (calcaires, marnes)' },
+    { k: 'fill', c: '#c8a2d6', t: 'Trias (grès, argiles bariolées, gypse)' },
+    { k: 'fill', c: '#b3a796', t: 'Primaire (schistes, grès anciens, houiller)' },
+    { k: 'fill', c: '#f48a8a', t: 'Roches magmatiques (granites, basaltes)' },
+    { k: 'fill', c: '#e9b3d6', t: 'Roches métamorphiques (gneiss, micaschistes)' },
+    { k: 'title', t: 'Lettres sur la carte' },
+    { k: 'note', t: 'F = alluvions (Fz récentes, Fy, Fx plus anciennes) · C = colluvions · E = éboulis · LP = limons des plateaux · R = altérites · X = remblais · e = Éocène · g = Oligocène · m = Miocène · p = Pliocène · c = Crétacé sup. · n = Crétacé inf. · j = Jurassique · l = Lias · t = Trias · h = Carbonifère · γ = granite. Le chiffre précise l\'étage (1 = le plus ancien).' },
+    { k: 'line', c: '#222', t: 'Trait noir épais : faille (pointillé si supposée)' },
+    { k: 'note', t: 'Le détail exact de chaque code est dans la notice de la feuille : touche la carte puis « Que trouve-t-on ici ? ».' }
+  ];
+  C.legendSpec = function (it) {
+    if (it.legend === 'geol') return GEOL_KEY;
+    if (it.special === 'litho' && C.geology) {
+      if (!C.geology.classes) { C.geology.loadLitho().then(function () { C.refreshTab('calques'); }).catch(function () {}); return [{ k: 'note', t: 'Chargement de la légende…' }]; }
+      var cl = C.geology.classes;
+      var keys = Object.keys(cl).sort(function (a, b) { return (cl[a][1] + cl[a][0]).localeCompare(cl[b][1] + cl[b][0]); }), out = [], last = '';
+      keys.forEach(function (k) { if (cl[k][1] !== last) { last = cl[k][1]; out.push({ k: 'title', t: last }); } out.push({ k: 'fill', c: cl[k][2], t: cl[k][0] }); });
+      out.push({ k: 'note', t: 'Carte au 1/1 000 000 : donne la famille de roche dominante, pas le détail d\'une parcelle.' });
+      return out;
+    }
+    if (Array.isArray(it.legend)) return it.legend;
+    return null;
+  };
   C.legendHtml = function (it) {
     if (it.special === 'vigicrues') return ['Pas de vigilance', 'Jaune', 'Orange', 'Rouge'].map(function (t, i) { return '<span class="sw"><i style="background:' + VIGI_COL[i + 1] + '"></i>' + t + '</span>'; }).join('');
     if (it.special === 'veg_rte') return '<span class="sw"><i style="background:#43a047"></i>Végétation à risque</span>';
     if (it.special === 'rte_num') return '<span class="sw"><i style="background:#1565c0"></i>N° de pylône RTE</span>';
+    var spec = C.legendSpec(it);
+    if (spec) return legendList(spec);
     var urls = C.legendUrls(it);
     if (urls.length) return urls.map(function (u) { return '<img loading="lazy" alt="Légende" src="' + U.esc(u) + '" onerror="this.remove()">'; }).join('');
     var cols = C.sampleColors(it.id);
@@ -535,6 +583,11 @@
   C.rteNumTileUrl = function (x, y) { return C.rteNumUrl(z12Bounds(x, y)); };
   C.propsHtml = function (p) {
     var rows = [];
+    if (p.nom_site && p.url_fiche) {
+      return '<b>' + U.esc(p.nom_site) + '</b>' + (p.id_mnhn ? ' <span class="muted small">(' + U.esc(p.id_mnhn) + ')</span>' : '') +
+        (p.gest_site ? '<br><span class="muted small">Gestion : ' + U.esc(p.gest_site) + '</span>' : '') +
+        '<br><a href="' + U.esc(p.url_fiche) + '" target="_blank" rel="noopener">Fiche officielle INPN ↗</a>';
+    }
     for (var k in p) {
       var v = p[k];
       if (v == null || v === '' || typeof v === 'object') continue;
@@ -581,15 +634,50 @@
   map.on('moveend', function () { refreshVector(vegCfg); refreshVector(rteNumCfg); });
 
   /* ---- « Que trouve-t-on ici ? » ---- */
+  // hauteur LiDAR (MNH) : on lit la valeur brute (GeoTIFF float32) de quelques pixels autour du point
+  function mnhAt(latlng) {
+    var p = L.CRS.EPSG3857.project(latlng), h = 1.5;
+    var u = 'https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG:3857&BBOX=' +
+      [p.x - h, p.y - h, p.x + h, p.y + h].map(function (v) { return v.toFixed(2); }).join(',') + '&WIDTH=3&HEIGHT=3&FORMAT=image/geotiff';
+    function get(n) {
+      // le serveur LiDAR répond parfois par une erreur passagère : on retente
+      return U.withTimeout(fetch(u), 15000).then(function (r) {
+        if (!r.ok || !/tiff/.test(r.headers.get('content-type') || '')) throw new Error('mnh ' + r.status);
+        return r.arrayBuffer();
+      }).catch(function (e) { if (n > 0) return new Promise(function (ok) { setTimeout(ok, 700); }).then(function () { return get(n - 1); }); throw e; });
+    }
+    return get(2).then(function (buf) {
+      var v = readTiffFloats(buf); if (!v || !v.length) return null;
+      var ok = v.filter(function (x) { return isFinite(x) && x > -50 && x < 400; });
+      return ok.length ? Math.max.apply(null, ok) : null;
+    });
+  }
+  function readTiffFloats(buf) {
+    var dv = new DataView(buf), le = dv.getUint16(0) === 0x4949;
+    var g16 = function (o) { return dv.getUint16(o, le); }, g32 = function (o) { return dv.getUint32(o, le); };
+    var ifd = g32(4), n = g16(ifd), tags = {};
+    for (var i = 0; i < n; i++) {
+      var e = ifd + 2 + i * 12, tag = g16(e), type = g16(e + 2), cnt = g32(e + 4);
+      var val = type === 3 && cnt === 1 ? g16(e + 8) : g32(e + 8);
+      tags[tag] = { type: type, cnt: cnt, val: val };
+    }
+    if (tags[259] && tags[259].val !== 1) return null; // compressé : non lu
+    var w = tags[256].val, hgt = tags[257].val, bps = tags[258] ? (tags[258].cnt === 1 ? tags[258].val : 32) : 32;
+    var off = tags[273].cnt === 1 ? tags[273].val : g32(tags[273].val);
+    var out = [];
+    for (var k = 0; k < w * hgt; k++) out.push(bps === 64 ? dv.getFloat64(off + k * 8, le) : dv.getFloat32(off + k * 4, le));
+    return out;
+  }
   C.queryInfo = function (latlng) {
-    if (!U.isOnline()) return Promise.resolve('<p class="muted">Nécessite du réseau.</p>');
     var z = map.getZoom(), res = 2 * 20037508.342789244 / (256 * Math.pow(2, z));
     var pt = L.CRS.EPSG3857.project(latlng), h = 50 * res;
     var bbox = [pt.x - h, pt.y - h, pt.x + h, pt.y + h].map(function (v) { return v.toFixed(2); }).join(',');
-    var jobs = [];
+    var jobs = [], specials = {}, online = U.isOnline();
     Object.keys(active).forEach(function (id) {
-      var it = ITEMS[id]; if (!it.info || hidden[id] || !it.defs) return;
-      it.defs.forEach(function (d) {
+      var it = ITEMS[id]; if (!it.info || hidden[id]) return;
+      if (it.special_info) specials[it.special_info] = true;
+      if (!online) return;
+      (it.infoDefs || it.defs || []).forEach(function (d) {
         if (d.kind !== 'wms') return;
         var u = d.base + '?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetFeatureInfo&LAYERS=' + d.layers + '&QUERY_LAYERS=' + d.layers +
           '&STYLES=&CRS=EPSG:3857&BBOX=' + bbox + '&WIDTH=101&HEIGHT=101&I=50&J=50&INFO_FORMAT=application/json&FEATURE_COUNT=5&BUFFER=12';
@@ -597,10 +685,16 @@
           .then(function (j) { return { it: it, feats: (j && j.features) || [] }; }).catch(function () { return { it: it, feats: [] }; }));
       });
     });
-    if (!jobs.length) return Promise.resolve('<p class="muted">Allume un calque interrogeable (réseaux, SNCF, PLU, servitudes, bâtiments…) pour l\'interroger.</p>');
-    return Promise.all(jobs).then(function (rs) {
-      var html = [];
-      rs.forEach(function (r) { r.feats.forEach(function (f) { html.push('<div class="card"><h4>' + U.esc(r.it.label) + '</h4><div>' + C.propsHtml(f.properties || {}) + '</div></div>'); }); });
+    var extra = [];
+    if (specials.geol && C.geology) extra.push(C.geology.infoHtml(latlng.lat, latlng.lng));
+    if (specials.mnh) extra.push(online ? mnhAt(latlng).then(function (v) {
+      return '<div class="card"><h4>Hauteur LiDAR HD</h4><div>' + (v == null ? 'Pas de mesure ici (zone pas encore couverte ou zone protégée).' : 'Hauteur au-dessus du sol : <b>' + (v < 0.5 ? 'moins de 0,5 m' : v.toFixed(1).replace('.', ',') + ' m') + '</b> <span class="muted small">(arbres, bâtiments, pylônes…)</span>') + '</div></div>';
+    }).catch(function () { return ''; }) : Promise.resolve(''));
+    if (!jobs.length && !extra.length) return Promise.resolve(online ? '<p class="muted">Allume un calque interrogeable (réseaux, environnement, géologie, hauteur LiDAR, PLU, servitudes, bâtiments…) pour l\'interroger.</p>' : '<p class="muted">Nécessite du réseau (sauf la géologie, consultable hors ligne).</p>');
+    return Promise.all([Promise.all(extra), Promise.all(jobs)]).then(function (r) {
+      var html = r[0].filter(Boolean);
+      r[1].forEach(function (x) { x.feats.forEach(function (f) { html.push('<div class="card"><h4>' + U.esc(x.it.label) + '</h4><div>' + C.propsHtml(f.properties || {}) + '</div></div>'); }); });
+      if (!online && jobs.length === 0 && Object.keys(active).some(function (id) { return ITEMS[id].info && !ITEMS[id].special_info; })) html.push('<p class="muted small">Les autres calques demandent du réseau.</p>');
       return html.length ? html.join('') : '<p class="muted">Rien trouvé à cet endroit dans les calques affichés.</p>';
     });
   };

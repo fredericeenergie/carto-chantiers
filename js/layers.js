@@ -21,6 +21,13 @@
     return d;
   }
 
+  // légendes dessinées par l'appli quand le service n'en fournit pas de lisible
+  function fill(c, t, o) { return { k: 'fill', c: c, t: t, o: o }; }
+  function line(c, t) { return { k: 'line', c: c, t: t }; }
+  function dash(c, t) { return { k: 'dash', c: c, t: t }; }
+  var WMSV = 'https://data.geopf.fr/wms-v/ows';
+  function patri(name) { return wms(WMSV, name); }
+
   var SRC = {
     ign: 'IGN Géoplateforme',
     gb_rte: 'RTE, via GéoBretagne',
@@ -37,6 +44,7 @@
     lidar: 'LiDAR HD (IGN)',
     admin: 'Admin Express (IGN)',
     brgm: 'BRGM — carte géologique, via IGN Géoplateforme',
+    brgm1m: 'BRGM — carte lithologique simplifiée 1/1 000 000',
     bdtopo: 'BD TOPO (IGN)',
     histo: 'IGN — photos aériennes 1950-1965',
     irc: 'IGN — photos infrarouges',
@@ -105,10 +113,15 @@
       { id: 'vigicrues', label: 'Vigicrues — vigilance en cours', src: SRC.vigicrues, special: 'vigicrues',
         hint: 'Vert, jaune, orange, rouge ; via ta porte Apps Script' },
       { id: 'hydro', label: 'Cours d\'eau et plans d\'eau', src: SRC.ign, offline: 17,
+        legend: [line('#5080b8', 'Cours d\'eau'), fill('#a8e0e8', 'Plan d\'eau, rivière large')],
         defs: [ign('HYDROGRAPHY.HYDROGRAPHY', 'image/png', 'PM_6_18', [6, 18])] },
       { id: 'bcae', label: 'Cours d\'eau BCAE (bandes tampons)', src: SRC.ign, offline: 16,
+        hint: 'Cours d\'eau le long desquels une bande enherbée est obligatoire (PAC)',
+        legend: [line('#80b8d8', 'Cours d\'eau BCAE (bande tampon de 5 m)')],
         defs: [ign('HYDROGRAPHY.BCAE.LATEST', 'image/png', 'PM_6_17', [6, 17])] },
-      { id: 'humides', label: 'Zones humides et tourbières', src: SRC.ign, offline: 16, opacity: 0.8, legendUrl: LEG + 'TOURBIERES-ZONES-HUMIDES-BCAE-legend.png',
+      { id: 'humides', label: 'Zones humides et tourbières', src: SRC.ign, offline: 16, opacity: 0.8, info: true,
+        legend: [fill('#84a4ce', 'Zone humide effective'), fill('#ebbf92', 'Tourbière'), fill('#00528f', 'Site Ramsar (zone humide d\'importance internationale)')],
+        infoDefs: [patri('Patrinat_RAMSAR_France')],
         defs: [ign('TOURBIERES_ZONES-HUMIDES.BCAE', 'image/png', 'PM_6_16', [6, 16]), ign('Patrinat_RAMSAR', 'image/png', 'PM_6_16', [6, 16])] },
       { id: 'tri', label: 'Surfaces inondables (TRI)', src: SRC.georisques, offline: 16, opacity: 0.6, minZoom: 11,
         hint: 'Crue fréquente, moyenne et rare, dans les territoires à risque important cartographiés',
@@ -131,30 +144,41 @@
         defs: [wms(GEORISQUES, 'SSP_CLASSIFICATION_SIS'), wms(GEORISQUES, 'SSP_INSTRUCTION'), wms(GEORISQUES, 'SSP_ETABLISSEMENT')] }
     ]},
     { id: 'env', label: 'Environnement', items: [
-      { id: 'n2000_hab', label: 'Natura 2000 — Habitats (ZSC)', src: SRC.inpn, offline: 16, opacity: 0.7,
+      { id: 'n2000_hab', label: 'Natura 2000 — Habitats (ZSC)', src: SRC.inpn, offline: 16, opacity: 0.7, info: true,
+        legend: [fill('#d4b01c', 'Zone spéciale de conservation (directive Habitats)')], infoDefs: [patri('Patrinat_SIC_France')],
         defs: [ign('Patrinat_SIC', 'image/png', 'PM_6_16', [6, 16])] },
-      { id: 'n2000_ois', label: 'Natura 2000 — Oiseaux (ZPS)', src: SRC.inpn, offline: 16, opacity: 0.7,
+      { id: 'n2000_ois', label: 'Natura 2000 — Oiseaux (ZPS)', src: SRC.inpn, offline: 16, opacity: 0.7, info: true,
+        legend: [fill('#a7c827', 'Zone de protection spéciale (directive Oiseaux)')], infoDefs: [patri('Patrinat_ZPS_France')],
         defs: [ign('Patrinat_ZPS', 'image/png', 'PM_6_16', [6, 16])] },
-      { id: 'znieff1', label: 'ZNIEFF type I', src: SRC.inpn, offline: 16, opacity: 0.7,
+      { id: 'znieff1', label: 'ZNIEFF type I', src: SRC.inpn, offline: 16, opacity: 0.7, info: true,
+        legend: [fill('#008714', 'ZNIEFF I : secteur de grand intérêt biologique, souvent de petite taille')], infoDefs: [patri('Patrinat_ZNIEFF1_France')],
         defs: [ign('Patrinat_ZNIEFF1', 'image/png', 'PM_6_16', [6, 16])] },
-      { id: 'znieff2', label: 'ZNIEFF type II', src: SRC.inpn, offline: 16, opacity: 0.6,
+      { id: 'znieff2', label: 'ZNIEFF type II', src: SRC.inpn, offline: 16, opacity: 0.6, info: true,
+        legend: [fill('#8acd87', 'ZNIEFF II : grand ensemble naturel riche et peu modifié')], infoDefs: [patri('Patrinat_ZNIEFF2_France')],
         defs: [ign('Patrinat_ZNIEFF2', 'image/png', 'PM_6_16', [6, 16])] },
-      { id: 'protege', label: 'Espaces protégés', src: SRC.inpn, offline: 16, opacity: 0.7,
+      { id: 'protege', label: 'Espaces protégés', src: SRC.inpn, offline: 16, opacity: 0.7, info: true,
+        legend: [fill('#ff7800', 'Arrêté de protection de biotope'), fill('#6c2d5e', 'Réserve naturelle nationale'), fill('#66cdab', 'Réserve naturelle régionale'),
+          fill('#707040', 'Parc national — cœur'), fill('#a0b018', 'Parc national — aire d\'adhésion')],
+        infoDefs: [patri('Patrinat_APB_France'), patri('Patrinat_RNN_France'), patri('Patrinat_RNR_France'), patri('Patrinat_Parc_national')],
         hint: 'Arrêtés de biotope, réserves naturelles, parcs nationaux',
         defs: [ign('Patrinat_APB', 'image/png', 'PM_6_16', [6, 16]), ign('Patrinat_RNN', 'image/png', 'PM_6_16', [6, 16]),
                ign('Patrinat_RNR', 'image/png', 'PM_6_16', [6, 16]), ign('Patrinat_PN', 'image/png', 'PM_6_16', [6, 16])] },
-      { id: 'pnr', label: 'Parcs naturels régionaux', src: SRC.inpn, offline: 14, opacity: 0.5,
+      { id: 'pnr', label: 'Parcs naturels régionaux', src: SRC.inpn, offline: 14, opacity: 0.5, info: true,
+        legend: [fill('#cda666', 'Parc naturel régional')], infoDefs: [patri('Patrinat_PNR_France')],
         defs: [ign('Patrinat_PNR', 'image/png', 'PM_6_16', [6, 16])] }
     ]},
     { id: 'veg', label: 'Végétation', items: [
       { id: 'veg_rte', label: 'Végétation à risque sous lignes RTE', src: SRC.odre, special: 'veg_rte', minZoom: 13,
         hint: 'Essences dont la pousse peut menacer les câbles' },
-      { id: 'mnh', label: 'Hauteur de végétation (LiDAR HD)', src: SRC.lidar, offline: 17, opacity: 0.75, minZoom: 13,
+      { id: 'mnh', label: 'Hauteur de végétation (LiDAR HD)', src: SRC.lidar, offline: 17, opacity: 0.75, minZoom: 13, info: true, special_info: 'mnh',
+        legend: [{ k: 'ramp', c: ['#94ff3d', '#d3ff7f', '#fffe7e', '#ffcc59', '#ffa93f', '#ff7719', '#ff5701'], ticks: ['0 m', '10 m', '20 m', '30 m et +'] },
+          { k: 'note', t: 'Hauteur au-dessus du sol : arbres, mais aussi bâtiments et pylônes. Touche la carte puis « Que trouve-t-on ici ? » pour lire la hauteur exacte.' }],
         hint: 'Hauteur des arbres et du sursol ; couverture LiDAR HD en cours',
         defs: [wms(WMSR, 'IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93', [10, 19], { styles: 'hypso_mnh' })] },
       { id: 'foret', label: 'Forêts (BD Forêt)', src: SRC.ign, offline: 16, opacity: 0.6, legendUrl: LEG + 'LANDCOVER.FORESTINVENTORY.V2-legend.png',
         defs: [ign('LANDCOVER.FORESTINVENTORY.V2', 'image/png', 'PM_6_16', [6, 16])] },
       { id: 'haies', label: 'Haies (BD Haie 2024)', src: SRC.ign, offline: 17,
+        legend: [line('#60f830', 'Haie')],
         defs: [ign('hedge.hedge', 'image/png', 'PM_7_18', [7, 18])] }
     ]},
     { id: 'agri', label: 'Agriculture', items: [
@@ -163,8 +187,11 @@
         defs: [ign('LANDUSE.AGRICULTURE.LATEST', 'image/png', 'PM_6_16', [6, 16])] }
     ]},
     { id: 'geol', label: 'Géologie', items: [
-      { id: 'geologie', label: 'Carte géologique 1/50 000', src: SRC.brgm, offline: 15, opacity: 0.6,
-        hint: 'Nature des sols et roches (carte BRGM harmonisée)',
+      { id: 'litho', label: 'Nature du sous-sol (simplifiée)', src: SRC.brgm1m, special: 'litho', offline: 0, opacity: 0.55, info: true, special_info: 'geol',
+        hint: 'Argiles, sables, calcaires, granites… en 11 familles faciles à lire ; marche aussi hors ligne' },
+      { id: 'geologie', label: 'Carte géologique 1/50 000', src: SRC.brgm, offline: 15, opacity: 0.6, info: true, special_info: 'geol',
+        hint: 'Carte détaillée du BRGM ; touche la carte puis « Que trouve-t-on ici ? » pour la feuille et sa notice',
+        legend: 'geol',
         defs: [ign('BRGM_SCAN_D_GEOL50', 'image/jpeg', 'PM_0_15', [0, 15])] }
     ]},
     { id: 'bati', label: 'Bâtiments', items: [
@@ -194,7 +221,7 @@
     { id: 'relief', label: 'Relief', items: [
       { id: 'courbes', label: 'Courbes de niveau', src: SRC.ign, offline: 17, legendUrl: LEG + 'ELEVATION-CONTOUR-LINE-legend.png',
         defs: [ign('ELEVATION.CONTOUR.LINE', 'image/png', 'PM_6_18', [6, 18])] },
-      { id: 'ombrage', label: 'Ombrage du relief', src: SRC.ign, offline: 16, opacity: 0.45,
+      { id: 'ombrage', legend: [{ k: 'note', t: 'Relief éclairé depuis le nord-ouest : pentes et talwegs en relief, pas de code couleur.' }], label: 'Ombrage du relief', src: SRC.ign, offline: 16, opacity: 0.45,
         defs: [ign('IGNF_ELEVATION.ELEVATIONGRIDCOVERAGE.SHADOW', 'image/png', 'PM_6_17', [6, 17])] }
     ]}
   ];
