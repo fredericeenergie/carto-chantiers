@@ -592,6 +592,13 @@
     showPoint('Point choisi', [e.latlng.lat, e.latlng.lng], null, null);
   });
 
+  // point posé depuis la recherche d'adresse
+  C.showTarget = function (latlng, title) {
+    clearSelection();
+    target = L.marker(latlng, { icon: L.divIcon({ className: 'tgt-ico', html: '<div></div>', iconSize: [0, 0] }) }).addTo(map);
+    showPoint(title || 'Point choisi', [latlng.lat, latlng.lng], null, null);
+  };
+
   /* ======================= Enregistrer une version ======================= */
   C.docFeaturesForExport = function (doc, opts) {
     opts = opts || {};

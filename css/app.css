@@ -298,3 +298,20 @@ canvas.profile{width:100%;height:220px;display:block;background:#fff;border:1px 
 .lg-ramp .lg-bar{height:12px;border-radius:4px;border:1px solid rgba(0,0,0,.15)}
 .lg-ramp .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px}
 #ptInfos .sw i{width:16px;height:12px;border-radius:3px;display:inline-block;vertical-align:-1px;margin-right:6px;border:1px solid rgba(0,0,0,.2)}
+
+/* ---------- Recherche de lieu ---------- */
+.chip.srch-btn{flex:0 0 auto;width:48px;justify-content:center;padding:0}
+.chip.srch-btn svg{width:22px;height:22px;fill:none;stroke:var(--ink);stroke-width:2.2;stroke-linecap:round}
+.srch input{width:100%;font-size:17px;padding:12px 14px;border:2px solid var(--accent);border-radius:12px;outline:none;background:#fff}
+#srList .list-item{width:100%;text-align:left}
+#srList .ic{font-size:18px;width:26px;text-align:center;flex:none}
+
+/* fenêtre en haut sur téléphone et tablette (le clavier ne la cache pas) */
+@media not all and (min-width: 900px) and (min-height: 561px){
+  .sheet.at-top{top:0;bottom:auto;border-radius:0 0 18px 18px;transform:translateY(-105%);padding-top:var(--top);max-height:80vh}
+  .sheet.at-top.open{transform:none}
+  .sheet.at-top .grab{display:none}
+}
+@media (orientation: landscape) and (max-height: 560px){
+  .sheet.at-top{top:0;bottom:0;max-height:none;border-radius:18px 0 0 18px;transform:translateX(105%);padding-top:0}
+}

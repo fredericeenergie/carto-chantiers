@@ -1,4 +1,4 @@
-# Carto chantiers — v2.3
+# Carto chantiers — v2.4
 
 Appli de cartographie de chantiers de lignes aériennes. Elle s'utilise sur **téléphone** (comme une appli, avec hors ligne) et sur **ordinateur** (dans Chrome ou Edge, sans rien installer).
 
@@ -24,6 +24,11 @@ Adresse : https://fredericeenergie.github.io/carto-chantiers/
 - À l'ordinateur : **glisse-dépose** des KMZ, KML, GPX, GeoJSON sur la carte pour les ouvrir, ou un tableau CSV / Excel pour l'importer dans les fiches. Pendant un tracé : **Entrée** valide, **Retour arrière** ou **Ctrl+Z** annule le dernier point.
 - Les photos sont réduites à 2 560 px avant l'envoi : l'envoi depuis le terrain est rapide et le Drive reste léger.
 - L'appli démarre instantanément, même sans réseau. Quand une nouvelle version est en ligne, un message propose de **recharger**.
+
+### Rechercher un lieu
+- Bouton **loupe** en haut (ou touche **/** à l'ordinateur) : adresse postale, commune, lieu-dit, ou coordonnées **GPS** (44.9127, -0.5302 ou 44°54'45"N 0°31'57"W) ou **Lambert 93** (419373 6433824).
+- Le choix d'un résultat centre la carte, passe en **vue aérienne** et ouvre le point avec Waze / Google Maps.
+- Les dernières recherches sont gardées ; les coordonnées marchent aussi hors ligne.
 
 ### Légendes et « Que trouve-t-on ici ? »
 - Chaque calque affiché a sa légende dans l'onglet Calques (et dans la page Légende de l'atlas PDF). Quand le service public n'en fournit pas de lisible, l'appli dessine la sienne.

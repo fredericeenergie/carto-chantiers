@@ -17,6 +17,7 @@
 <!-- Haut : chantier + pylône -->
 <div class="top">
   <button class="chip" id="btnFiles"><span class="ic">🗂</span><span class="txt"><span class="lbl">Chantier</span><span class="val" id="filesVal">Ouvrir un fichier…</span></span><span class="caret">▾</span></button>
+  <button class="chip srch-btn" id="btnSearch" title="Rechercher une adresse ou des coordonnées" aria-label="Rechercher une adresse"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg></button>
   <button class="chip pyl" id="btnPyl"><span class="txt"><span class="lbl" id="pylLbl">Pylône</span><span class="val" id="pylName">—</span></span><span class="caret">▾</span></button>
 </div>
 <div class="badges"><span id="offBadge" class="badge warn" hidden>Hors réseau</span><button id="syncBadge" class="badge" hidden></button></div>
@@ -94,6 +95,7 @@
 <script src="js/tools.js"></script>
 <script src="js/export.js"></script>
 <script src="js/pdf.js"></script>
+<script src="js/search.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

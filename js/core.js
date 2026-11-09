@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.3.0';
+  C.VERSION = 'v2.4.0';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Outils ======================= */
@@ -167,6 +167,7 @@
     var foot = $('dlg' + lvl + 'Foot'); foot.innerHTML = o.foot || '';
     if (!lvl) { $('dlgHead').innerHTML = o.head || ''; }
     body.scrollTop = 0;
+    el.classList.toggle('at-top', !!o.top); // fenêtre en haut de l'écran (saisie au clavier sur téléphone)
     dlgClose[lvl] = o.onClose || null;
     dlgGuard[lvl] = o.guard || null;
     el.classList.add('open');
