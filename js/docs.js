@@ -17,6 +17,8 @@
     feats.forEach(function (f) {
       var ph = (f.data || []).filter(function (d) { return d[0] === 'Photos'; })[0];
       if (ph) f.photos = ph[1].split(/\n/).map(function (l) { var a = l.split(' | '); return a[1] ? { name: a[0], url: a[1], id: (a[1].match(/\/d\/([^/]+)/) || [])[1] } : null; }).filter(Boolean);
+      var au = (f.data || []).filter(function (d) { return d[0] === 'Notes vocales'; })[0];
+      if (au) f.audios = au[1].split(/\n/).map(function (l) { var a = l.split(' | '); return a[1] ? { name: a[0], url: a[1] } : null; }).filter(Boolean);
     });
     return feats;
   }
@@ -85,10 +87,12 @@
     if (!opts.quiet) U.busy(true, 'Ouverture du chantier…');
     var fromCache = null;
     return C.callPorte('fichier', { id: id }).then(function (j) {
-      C.saveData('fichier-' + id, j.fichier); return j.fichier;
+      if (j.fichier.type !== 'dxf') C.saveData('fichier-' + id, j.fichier); // un DXF devient un chantier de l'appareil : inutile de garder son texte
+      return j.fichier;
     }).catch(function (err) {
       return C.loadData('fichier-' + id).then(function (c) { if (!c) throw err; fromCache = c.savedAt; return c.data; });
     }).then(function (r) {
+      if (r.type === 'dxf') { U.busy(false); return C.dxf.importText(r.text, r.name); } // un DXF passe par sa fenêtre d'import
       var doc = newDoc({ id: id, name: r.name, parent: r.parent || opts.parent || null, source: 'drive', role: opts.role || (/ - terrain\.kml$/i.test(r.name) ? 'terrain' : 'chantier'), images: r.images || {}, feats: C.parsePayload(r), terrainOf: opts.terrainOf });
       if (doc.role === 'terrain' && !doc.terrainOf) {
         var ch = C.docs.filter(function (d) { return d.role === 'chantier' && U.baseName(d.name) + ' - terrain.kml' === r.name; })[0];
@@ -100,7 +104,7 @@
       U.busy(false);
       if (fromCache && !opts.quiet) U.toast('Pas de réseau : copie du ' + U.fmtDate(fromCache, true), 4000);
       if (doc.role === 'chantier') {
-        if (!opts.quiet) { fit(doc); foldersDialog(doc, true); }
+        if (!opts.quiet) { fit(doc); foldersDialog(doc, true); if (C.proposeOffline) C.proposeOffline(doc); }
         findTerrain(doc);
         if (C.fiches) C.fiches.load(doc);
       }
@@ -139,6 +143,7 @@
     });
   }
   function openOneLocal(file, many) {
+    if (/\.dxf$/i.test(file.name)) return C.dxf.importFile(file);
     U.busy(true, 'Lecture de « ' + file.name + ' »…');
     return C.formats.readMapFile(file).then(function (r) {
       var doc = newDoc({ name: r.name, source: 'local', role: 'chantier', images: r.images, feats: C.parsePayload(r), parent: null });
@@ -149,21 +154,26 @@
     }).catch(function (e) { U.busy(false); U.toast('Lecture impossible de « ' + file.name + ' » : ' + (e.message || e), 5000); });
   }
   C.openLocalFiles = function (files) {
-    files = (files || []).filter(function (f) { return /\.(kmz|kml|gpx|geojson|json)$/i.test(f.name); });
-    if (!files.length) return Promise.resolve();
+    var all = files || [];
+    files = all.filter(function (f) { return /\.(kmz|kml|gpx|geojson|json|dxf)$/i.test(f.name); });
+    if (!files.length) {
+      if (all.some(function (f) { return /\.dwg$/i.test(f.name); })) U.toast('Le DWG ne se lit pas ici : dans AutoCAD ou DWG TrueView, « Enregistrer sous » → DXF.', 7000);
+      else if (all.length) U.toast('Format non reconnu : KMZ, KML, GPX, GeoJSON ou DXF', 5000);
+      return Promise.resolve();
+    }
     var chain = Promise.resolve(), last = null;
     files.forEach(function (f) { chain = chain.then(function () { return openOneLocal(f, files.length > 1).then(function (d) { if (d) last = d; }); }); });
     return chain.then(function () {
       if (files.length > 1) fit(null);
-      if (last) U.toast(files.length > 1 ? files.length + ' chantiers ouverts depuis l\'appareil' : 'Chantier ouvert depuis l\'appareil : enregistre une version pour le mettre sur le Drive (onglet Chantier)', 5000);
+      if (last && last.source === 'local' && !last.dxf) U.toast(files.length > 1 ? files.length + ' chantiers ouverts depuis l\'appareil' : 'Chantier ouvert depuis l\'appareil : enregistre une version pour le mettre sur le Drive (onglet Chantier)', 5000);
     });
   };
   C.openLocalFile = function () {
-    return U.pickFiles('.kmz,.kml,.gpx,.geojson,.json').then(C.openLocalFiles);
+    return U.pickFiles('.kmz,.kml,.gpx,.geojson,.json,.dxf').then(C.openLocalFiles);
   };
   /* Glisser-déposer sur l'ordinateur : cartes → ouvertes ; tableaux → import des fiches */
   (function dropZone() {
-    var ov = document.createElement('div'); ov.id = 'dropOv'; ov.innerHTML = '<div>Dépose ici tes KMZ, KML, GPX, GeoJSON<br><span>ou un tableau CSV / Excel à importer</span></div>';
+    var ov = document.createElement('div'); ov.id = 'dropOv'; ov.innerHTML = '<div>Dépose ici tes KMZ, KML, GPX, GeoJSON ou DXF<br><span>ou un tableau CSV / Excel à importer</span></div>';
     document.body.appendChild(ov);
     var depth = 0;
     function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
@@ -174,13 +184,29 @@
       if (!hasFiles(e)) return;
       e.preventDefault(); depth = 0; ov.classList.remove('on');
       var files = Array.prototype.slice.call(e.dataTransfer.files || []);
-      var maps = files.filter(function (f) { return /\.(kmz|kml|gpx|geojson|json)$/i.test(f.name); });
+      if (C.viewer) return; // consultation : rien ne s'ajoute
+      var maps = files.filter(function (f) { return /\.(kmz|kml|gpx|geojson|json|dxf)$/i.test(f.name); });
       var tables = files.filter(function (f) { return /\.(csv|txt|xlsx|xls|ods)$/i.test(f.name); });
-      if (!maps.length && !tables.length) { U.toast('Format non reconnu : KMZ, KML, GPX, GeoJSON, CSV ou Excel'); return; }
+      if (!maps.length && !tables.length) {
+        U.toast(files.some(function (f) { return /\.dwg$/i.test(f.name); }) ? 'Le DWG ne se lit pas ici : dans AutoCAD ou DWG TrueView, « Enregistrer sous » → DXF.' : 'Format non reconnu : KMZ, KML, GPX, GeoJSON, DXF, CSV ou Excel', 6000);
+        return;
+      }
       C.closeDialog(2); C.closeDialog(1);
       C.openLocalFiles(maps).then(function () { if (tables.length && C.fiches) C.fiches.importFile(tables[0], {}); });
     });
   })();
+  // opts : { quiet (ne devient pas le chantier actif), hidden (dossiers masqués au départ), dxf }
+  C.addLocalDoc = function (name, feats, opts) {
+    opts = opts || {};
+    var doc = newDoc({ name: name, source: 'local', role: 'chantier', feats: feats, parent: null, hidden: opts.hidden || {}, dirty: true, dxf: !!opts.dxf });
+    addDoc(doc, opts.quiet); persistLocal(doc); fit(doc);
+    return doc;
+  };
+  C.addSharedDoc = function (r) {
+    var doc = newDoc({ id: null, name: r.name, source: 'share', role: 'chantier', images: r.images || {}, feats: C.parsePayload(r), parent: null });
+    addDoc(doc); fit(doc);
+    return doc;
+  };
   C.newChantier = function () {
     return C.promptDialog('Nouveau chantier', 'Nom du chantier', '', 'Créer').then(function (n) {
       if (!n) return;
@@ -337,7 +363,7 @@
       '<div id="chOpen"></div>' +
       '<h3 class="sec-title">Ouvrir depuis Mon Drive</h3><div class="rows" id="chDrive"><div class="empty">Lecture du Drive…</div></div>' +
       '<div class="rows">' + ui.item('browse', '📁', 'Parcourir les dossiers du Drive', 'Chantier rangé ailleurs qu\'à la racine') +
-      ui.item('local', '📱', 'Ouvrir depuis l\'appareil', 'KMZ reçu par mail, WhatsApp…') + '</div>' +
+      ui.item('local', '📱', 'Ouvrir depuis l\'appareil', 'KMZ reçu par mail, WhatsApp… ou plan AutoCAD (DXF)') + '</div>' +
       '<h3 class="sec-title">Créer</h3><div class="rows">' + ui.item('create', '✚', 'Nouveau chantier', 'Vierge : pylônes à ajouter sur la carte') +
       ui.item('table', '📊', 'Chantier depuis un tableau', 'Coordonnées CSV, Excel ou Google Sheet') + '</div>' });
     function drawOpen() {
@@ -389,7 +415,7 @@
           : 'La porte Drive n\'est pas encore réglée.<div class="row row-center"><button class="btn primary" data-open-settings>Ouvrir les réglages</button></div>') + '</div>';
       });
   };
-  $('btnChantier').addEventListener('click', C.chantiersDialog);
+  $('btnChantier').addEventListener('click', function () { if (C.viewer) C.share.infoDialog(); else C.chantiersDialog(); });
 
   /* ======================= Navigateur Drive ======================= */
   // mode 'file' : choisir un fichier de cartographie ; 'folder' : choisir un dossier ; 'table' : choisir un Google Sheet ou un CSV
@@ -508,7 +534,8 @@
   }
   C.centerOf = centerOf;
 
-  function showPoint(title, ll, doc, f) {
+  // pinned : encart à garder en tête des infos (parcelle trouvée par la recherche…)
+  function showPoint(title, ll, doc, f, pinned) {
     var lat = ll[0], lon = ll[1], s = lat.toFixed(6) + ',' + lon.toFixed(6);
     var html = '<div class="coords">' + lat.toFixed(6) + ', ' + lon.toFixed(6) + (C.geo ? ' · L93 ' + C.geo.L93.fromWGS(lat, lon).map(function (v) { return Math.round(v); }).join(' / ') : '') + '</div>' +
       '<div class="route-links"><a class="waze" target="_blank" rel="noopener" href="https://waze.com/ul?ll=' + encodeURIComponent(s) + '&navigate=yes">Waze</a>' +
@@ -524,9 +551,9 @@
       }
     }
     var acts = [];
-    if (f && f.pylon && doc.role !== 'terrain') acts.push(['fiche', '📋 Fiche pylône', 'primary']);
+    if (f && f.pylon && doc.role !== 'terrain' && !C.viewer) acts.push(['fiche', '📋 Fiche pylône', 'primary']);
     if (f && doc.role === 'terrain') acts.push(['editTerrain', '✎ Modifier', 'primary']);
-    if (!f || f.kind !== 'point' || doc.role !== 'terrain') acts.push(['addPoint', '📍 Ajouter un point terrain', '']);
+    if ((!f || f.kind !== 'point' || doc.role !== 'terrain') && !C.viewer) acts.push(['addPoint', '📍 Ajouter un point terrain', '']);
     if (f && f.kind === 'line') acts.push(['profile', '⛰ Profil en long', '']);
     acts.push(['info', 'Que trouve-t-on ici ?', '']);
     acts.push(['copy', 'Copier les coordonnées', '']);
@@ -536,22 +563,25 @@
     var meta = [];
     if (f) {
       if (f.folder && f.folder.length) meta.push('<b>Dossier :</b> ' + esc(f.folder.join(' › ')));
-      (f.data || []).forEach(function (d) { if (d[0] !== 'Photos') meta.push('<b>' + esc(d[0]) + ' :</b> ' + esc(d[1])); });
+      (f.data || []).forEach(function (d) { if (d[0] !== 'Photos' && d[0] !== 'Notes vocales') meta.push('<b>' + esc(d[0]) + ' :</b> ' + esc(d[1])); });
       // pas de redite : la note, la longueur et la surface déjà listées ci-dessus ne sont pas répétées
       if (f.desc && f.desc !== dataGet(f, 'Note')) meta.push(esc(f.desc.length > 600 ? f.desc.slice(0, 600) + '…' : f.desc));
       if (f.kind === 'line' && !dataGet(f, 'Longueur')) meta.push('<b>Longueur :</b> ' + U.fmtDist(C.geo.lineLength(f.coords)));
       if (f.kind === 'poly' && !dataGet(f, 'Surface')) meta.push('<b>Surface :</b> ' + U.fmtArea(C.geo.area(f.coords[0])));
     }
-    $('ptMeta').innerHTML = '<div class="meta">' + meta.join('\n') + '</div>' + (f && f.photos && f.photos.length ? '<div class="photos">' + f.photos.map(photoThumb).join('') + '</div>' : '');
-    if (f && f.pylon && C.fiches) C.fiches.summaryInto($('ptMeta'), doc, f);
+    $('ptMeta').innerHTML = '<div class="meta">' + meta.join('\n') + '</div>' + (f && f.photos && f.photos.length ? '<div class="photos">' + f.photos.map(photoThumb).join('') + '</div>' : '') +
+      (f && f.audios && f.audios.length ? '<div class="audios">' + f.audios.map(function (a, i) { return C.fiches.audioChip((a.name || '') + (a.url ? ' | ' + a.url : ''), i); }).join('') + '</div>' : '');
+    if (f && f.pylon && C.fiches && !C.viewer) C.fiches.summaryInto($('ptMeta'), doc, f);
     var mySeq = ++infoSeq;
+    pinned = pinned || '';
+    $('ptInfos').innerHTML = pinned;
     function runInfo() {
       var tok = ++infoReq;
-      $('ptInfos').innerHTML = '<p class="muted">Recherche…</p>';
-      C.queryInfo(L.latLng(lat, lon)).then(function (h) { if (tok === infoReq && mySeq === infoSeq) $('ptInfos').innerHTML = h; });
+      $('ptInfos').innerHTML = pinned + '<p class="muted">Recherche…</p>';
+      C.queryInfo(L.latLng(lat, lon)).then(function (h) { if (tok === infoReq && mySeq === infoSeq) $('ptInfos').innerHTML = pinned + h; });
     }
     // un appui sur la carte avec un calque interrogeable allumé (géologie, environnement, hauteur LiDAR…) affiche tout de suite ce qu'il y a
-    if (!f && Object.keys(C.active).some(function (id) { var it = C.ITEMS[id]; return it && it.info && !C.hiddenLayers[id] && (it.special_info || U.isOnline()); })) setTimeout(runInfo, 30);
+    if (!f && !pinned && Object.keys(C.active).some(function (id) { var it = C.ITEMS[id]; return it && it.info && !C.hiddenLayers[id] && (it.special_info || U.isOnline()); })) setTimeout(runInfo, 30);
     U.onAct($('ptActs'), {
       fiche: function () { C.fiches.ficheDialog(doc, f); },
       info: runInfo,
@@ -598,20 +628,29 @@
   });
 
   // point posé depuis la recherche d'adresse
-  C.showTarget = function (latlng, title) {
+  // extraHtml : informations affichées dans la fiche ; extraLayer : contour dessiné avec le point (parcelle), retiré avec lui
+  C.showTarget = function (latlng, title, extraHtml, extraLayer) {
     clearSelection();
-    target = L.marker(latlng, { icon: L.divIcon({ className: 'tgt-ico', html: '<div></div>', iconSize: [0, 0] }) }).addTo(map);
-    showPoint(title || 'Point choisi', [latlng.lat, latlng.lng], null, null);
+    var marker = L.marker(latlng, { icon: L.divIcon({ className: 'tgt-ico', html: '<div></div>', iconSize: [0, 0] }) });
+    target = (extraLayer ? L.layerGroup([extraLayer, marker]) : marker).addTo(map);
+    showPoint(title || 'Point choisi', [latlng.lat, latlng.lng], null, null, extraHtml);
   };
+
+  // liens vers les pièces jointes déjà envoyées sur le Drive : « Photo 1 · Photo 2 · Note vocale 1 »
+  function linksHtml(f) {
+    var ph = (f.photos || []).filter(function (p) { return p.url; }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; });
+    var au = (f.audios || []).filter(function (a) { return a.url; }).map(function (a, i) { return '<a href="' + esc(a.url) + '">Note vocale ' + (i + 1) + '</a>'; });
+    return ph.concat(au).join(' · ');
+  }
+  C.linksHtml = linksHtml;
 
   /* ======================= Enregistrer une version ======================= */
   C.docFeaturesForExport = function (doc, opts) {
     opts = opts || {};
     return doc.feats.filter(function (f) { return !opts.visibleOnly || !doc.hidden[folderKey(f)]; }).map(function (f) {
       var o = { kind: f.kind, name: f.name, coords: f.coords, folder: f.folder, desc: f.desc, data: (f.data || []).slice(), style: f.style, pylon: f.pylon };
-      if (f.photos && f.photos.length) {
-        o.descHtml = (f.desc ? esc(f.desc) + '<br>' : '') + f.photos.filter(function (p) { return p.url; }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; }).join(' · ');
-      }
+      var links = linksHtml(f);
+      if (links) o.descHtml = (f.desc ? esc(f.desc) + '<br>' : '') + links;
       if (f.pylon && C.fiches && opts.withFiches !== false) C.fiches.appendData(doc, f, o);
       return o;
     });
@@ -693,12 +732,12 @@
       if (!blob) return; // déjà envoyée ou perdue
       var ch = C.docs.filter(function (d) { return C.docKey(d) === task.key; })[0];
       return sync.photoFolder(task.key, task.chantier || (ch ? U.baseName(ch.name) : 'Chantier')).then(function (folder) {
-        return U.blobToBase64(blob).then(function (b64) { return C.postPorte('photo', { dossierId: folder.id, nom: task.name, base64: b64, mime: blob.type || 'image/jpeg' }); });
+        return U.blobToBase64(blob).then(function (b64) { return C.postPorte('photo', { dossierId: folder.id, nom: task.name, base64: b64, mime: blob.type || 'image/jpeg', sousDossier: task.sub || '' }); });
       }).then(function (j) {
         var ph = j.photo;
         if (task.target === 'terrain') {
           var t = findTerrainByKey(task.key);
-          if (t) t.feats.forEach(function (f) { (f.photos || []).forEach(function (p) { if (p.key === task.photo) { p.id = ph.id; p.url = ph.url; } }); updatePhotoData(f); });
+          if (t) t.feats.forEach(function (f) { (f.photos || []).concat(f.audios || []).forEach(function (p) { if (p.key === task.photo) { p.id = ph.id; p.url = ph.url; } }); updatePhotoData(f); });
           if (t) { persistTerrain(t); sync.add({ t: 'terrain', key: task.key }); }
         } else if (task.target === 'fiche' && C.fiches) {
           C.fiches.photoUploaded(task.key, task.photo, ph);
@@ -710,6 +749,7 @@
   function updatePhotoData(f) {
     var links = (f.photos || []).filter(function (p) { return p.url; }).map(function (p) { return (p.name || 'photo') + ' | ' + p.url; });
     dataSet(f, 'Photos', links.join('\n'));
+    dataSet(f, 'Notes vocales', (f.audios || []).filter(function (a) { return a.url; }).map(function (a) { return (a.name || 'note vocale') + ' | ' + a.url; }).join('\n'));
   }
   C.updatePhotoData = updatePhotoData;
   function doTerrain(task) {
@@ -718,7 +758,7 @@
     var feats = t.feats.map(function (f) {
       updatePhotoData(f);
       return { kind: f.kind, name: f.name, coords: f.coords, folder: f.folder, desc: f.desc, data: f.data, style: f.style,
-        descHtml: (f.desc ? esc(f.desc) : '') + ((f.photos || []).some(function (p) { return p.url; }) ? '<br>' + f.photos.filter(function (p) { return p.url; }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; }).join(' · ') : '') };
+        descHtml: (f.desc ? esc(f.desc) : '') + (linksHtml(f) ? '<br>' + linksHtml(f) : '') };
     });
     var text = C.formats.toKML(U.baseName(t.name), feats);
     return C.postPorte('enregistrer', { nom: t.name, dossierId: (t.parent && t.parent.id) || 'root', texte: text, mime: 'application/vnd.google-earth.kml+xml', fichierId: t.id || '' }).then(function (j) {

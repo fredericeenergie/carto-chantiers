@@ -96,6 +96,7 @@
   /* ======================= Tracé sur la carte (ajouts terrain, pylônes, lignes, zones) ======================= */
   var drawState = null;
   T.draw = function (o) {
+    if (drawState) T.cancelDraw(); // un tracé à la fois
     if (ms.on) T.measure(false);
     C.closePanel(); C.clearSelection();
     drawState = Object.assign({ pts: [], layer: L.layerGroup().addTo(map) }, o);
@@ -120,13 +121,16 @@
   function finishDraw() {
     var s = drawState; if (!s) return;
     var pts = s.pts.map(function (p) { return [p.lat, p.lng]; });
+    s.onCancel = null; // tracé terminé, pas annulé
     T.cancelDraw();
     s.onDone(pts);
   }
   T.cancelDraw = function () {
     if (!drawState) return;
-    map.removeLayer(drawState.layer); drawState = null;
+    var s = drawState;
+    map.removeLayer(s.layer); drawState = null;
     $('drawBar').hidden = true; C.mapClickHook = null;
+    if (s.onCancel) s.onCancel();
   };
   $('drUndo').onclick = function () { if (drawState) { drawState.pts.pop(); drUpdate(); } };
   // clavier (ordinateur) : Entrée termine le tracé, Retour arrière / Ctrl+Z retire le dernier point
@@ -144,9 +148,10 @@
   /* ======================= Ajouts terrain ======================= */
   var CATS = ['Accès', 'Aménagement', 'Contrainte', 'Danger', 'Matériel', 'Environnement', 'Note'];
   var KIND = { point: 'point', line: 'ligne', poly: 'zone' }; // les trois formes, nommées partout de la même façon
-  T.addTerrain = function (kind, latlngs) {
+  // init (facultatif) : { name, photos: [{ blob, thumb }] } — sert à la photo rapide
+  T.addTerrain = function (kind, latlngs, init) {
     var a = C.activeDoc(); if (!a) { U.toast('Ouvre d\'abord un chantier'); C.chantiersDialog(); return; }
-    if (latlngs) { terrainForm(a, null, kind, latlngs.map(function (p) { return [p.lat, p.lng]; })); return; }
+    if (latlngs) { terrainForm(a, null, kind, latlngs.map(function (p) { return [p.lat, p.lng]; }), null, init); return; }
     T.draw({ type: kind, title: 'Ajout terrain : ' + KIND[kind], onDone: function (pts) { terrainForm(a, null, kind, pts); } });
   };
   T.editTerrain = function (doc, f) {
@@ -158,24 +163,28 @@
     C.pylonsOf(doc).forEach(function (f) { var d = C.geo.dist(f.coords, ll); if (d < bd) { bd = d; best = f; } });
     return best && bd < 2000 ? best.pylon : '';
   }
-  function terrainForm(chantier, f, kind, pts, tdoc) {
-    var isNew = !f;
+  function terrainForm(chantier, f, kind, pts, tdoc, init) {
+    var isNew = !f; init = init || {};
     var g = function (k) { return f ? C.dataGet(f, k) : ''; };
     var ll = pts ? (kind === 'point' ? pts[0] : pts[0]) : (kind === 'point' ? f.coords : C.centerOf(f));
     var cat = isNew ? 'Note' : (f.folder[1] || 'Note');
     var photos = f ? (f.photos || []).slice() : [];
-    var newPhotos = [];
+    var audios = f ? (f.audios || []).slice() : [];
+    var newPhotos = [], newAudios = [];
+    function photoName(key) { return U.baseName(chantier.name) + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg'; }
+    (init.photos || []).forEach(function (ph) { var key = U.uid(); newPhotos.push({ p: { key: key, thumb: ph.thumb, name: photoName(key) }, file: ph.blob }); });
     var pyls = C.pylonsOf(chantier);
     var html = '<div class="field"><span>Catégorie</span><div class="chips" id="taCat">' + CATS.map(function (c) { return '<button type="button" data-val="' + c + '"' + (c === cat ? ' class="on"' : '') + '>' + c + '</button>'; }).join('') + '</div></div>' +
-      '<label class="field"><span>Nom</span><input type="text" id="taName" value="' + esc(f ? f.name : '') + '" placeholder="ex. Portail fermé, zone humide, piste à créer…"></label>' +
-      '<label class="field"><span>Note</span><textarea id="taNote" placeholder="Détail, consignes, contacts…">' + esc(f ? (f.desc || g('Note')) : '') + '</textarea></label>' +
+      '<label class="field"><span>Nom</span><input type="text" id="taName" value="' + esc(f ? f.name : (init.name || '')) + '" placeholder="ex. Portail fermé, zone humide, piste à créer…"></label>' +
+      '<div class="field"><span>Note' + C.voice.buttonHtml() + '</span><textarea id="taNote" aria-label="Note" placeholder="Détail, consignes, contacts…">' + esc(f ? (f.desc || g('Note')) : '') + '</textarea>' +
+      '<div class="audios" id="taAu">' + audios.map(function (a, i) { return C.fiches.audioChip((a.name || '') + (a.url ? ' | ' + a.url : ''), i); }).join('') + '</div></div>' +
       '<label class="field"><span>Pylône concerné</span><select id="taPyl"><option value="">—</option>' + pyls.map(function (p) { return '<option' + ((f ? g('Pylône') : nearestPylon(chantier, ll)) === p.pylon ? ' selected' : '') + '>' + esc(p.pylon) + '</option>'; }).join('') + '</select></label>' +
-      '<div class="field"><span>Photos</span><div class="photos" id="taPh">' + photos.map(C.photoThumb).join('') + '<button type="button" class="ph add" id="taAdd" title="Prendre ou choisir des photos">📷</button></div></div>' +
+      '<div class="field"><span>Photos</span><div class="photos" id="taPh">' + photos.map(C.photoThumb).join('') + newPhotos.map(function (np) { return C.photoThumb(np.p); }).join('') + '<button type="button" class="ph add" id="taAdd" title="Prendre ou choisir des photos">📷</button></div></div>' +
       '<div class="field"><span>Statut</span><div class="seg" id="taSt">' + ['À valider', 'Validé', 'À revoir'].map(function (s) { return '<button type="button" data-val="' + s + '"' + ((g('Statut') || 'À valider') === s ? ' class="on"' : '') + '>' + s + '</button>'; }).join('') + '</div></div>';
     var processing = 0, snap = null;
     function state() { return [d.q('#taName').value, d.q('#taNote').value, d.q('#taPyl').value, U.picked(d.q('#taCat')), U.picked(d.q('#taSt'))].join('|'); }
     var d = C.openDialog({ title: isNew ? 'Ajout terrain : ' + KIND[kind] : 'Modifier l\'ajout terrain', body: html, foot: '<button class="btn" id="taCancel">Annuler</button><button class="btn primary push" id="taSave">Enregistrer</button>',
-      guard: function () { return newPhotos.length > 0 || processing > 0 || state() !== snap; } });
+      guard: function () { return newPhotos.length > 0 || newAudios.length > 0 || processing > 0 || state() !== snap; } });
     snap = state();
     if (isNew && !U.isDesktop()) { /* pas de clavier imposé sur téléphone */ } else if (isNew) setTimeout(function () { d.q('#taName').focus(); }, 250);
     U.pickOne(d.q('#taCat')); U.pickOne(d.q('#taSt'));
@@ -187,7 +196,7 @@
           d.q('#taPh').insertBefore(s, d.q('#taAdd'));
           processing++;
           U.compressImage(file).then(function (r) {
-            var p = { key: key, thumb: r.thumb, name: U.baseName(chantier.name) + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg' };
+            var p = { key: key, thumb: r.thumb, name: photoName(key) };
             newPhotos.push({ p: p, file: r.blob });
             s.classList.remove('wait'); s.textContent = ''; if (r.thumb) s.style.backgroundImage = 'url(' + r.thumb + ')';
             processing--;
@@ -195,6 +204,13 @@
         });
       });
     };
+    // dictée : le texte va dans la note, l'audio est rangé avec l'ajout
+    C.voice.attach(d.body, function (audio) {
+      var key = U.uid(), now = new Date();
+      var name = U.baseName(chantier.name) + '_note-vocale_' + U.isoDay() + '_' + String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + '.' + audio.ext;
+      newAudios.push({ a: { key: key, name: name }, file: audio.blob });
+      d.q('#taAu').insertAdjacentHTML('beforeend', '<span class="btn audio-wait">🎤 ' + C.voice.duration(audio.seconds) + ' · à envoyer</span>');
+    });
     d.q('#taCancel').onclick = function () { C.requestClose(1); };
     d.q('#taSave').onclick = function save() {
       if (processing) { U.toast('Photo en cours de préparation…', 1500); setTimeout(save, 600); return; }
@@ -212,6 +228,11 @@
         item.photos = item.photos || []; item.photos.push(np.p);
         C.sync.putBlob(np.p.key, np.file);
         C.sync.add({ t: 'photo', key: t.terrainOf, photo: np.p.key, name: np.p.name, target: 'terrain', chantier: U.baseName(chantier.name) });
+      });
+      newAudios.forEach(function (na) {
+        item.audios = item.audios || []; item.audios.push(na.a);
+        C.sync.putBlob(na.a.key, na.file);
+        C.sync.add({ t: 'photo', key: t.terrainOf, photo: na.a.key, name: na.a.name, target: 'terrain', chantier: U.baseName(chantier.name), sub: 'Notes vocales' });
       });
       if (isNew) t.feats.push(item);
       C.markDirty(t); C.renderDoc(t); C.closeDialog(1);
@@ -307,10 +328,11 @@
   C.tabs.terrain = function (el) {
     var a = C.activeDoc(), t = a && C.terrainOf(a);
     var nT = t ? t.feats.length : 0, nTv = t ? t.feats.filter(function (f) { return (C.dataGet(f, 'Statut') || 'À valider') === 'À valider'; }).length : 0;
-    el.innerHTML = '<h3>Mesurer</h3><div class="tiles">' +
+    var top = '<h3>Mesurer</h3><div class="tiles">' +
       ui.tile('measure', '📏', 'Mesurer', 'Distance et surface, au doigt') +
-      ui.tile('profile', '⛰', 'Profil en long', 'Relief le long des points posés') +
-      '</div><h3>Ajouts terrain</h3>' +
+      ui.tile('profile', '⛰', 'Profil en long', 'Relief le long des points posés') + '</div>';
+    if (C.viewer) { el.innerHTML = top + '<p class="muted small sec-foot">Consultation en lecture seule : les ajouts terrain ne sont pas disponibles.</p>'; U.onAct(el, { measure: function () { T.measure(true); }, profile: function () { T.measure(true, false, true); } }); return; }
+    el.innerHTML = top + '<h3>Ajouts terrain</h3>' +
       (a ? '' : '<p class="muted sec-note">Ouvre un chantier pour y ranger tes ajouts.</p>') +
       '<div class="tiles">' +
       ui.tile('addPoint', '📍', 'Ajouter un point', 'Note, photos, pylône concerné') +

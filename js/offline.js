@@ -7,14 +7,14 @@
   /* ---------- Petites données (liste, fichiers, Vigicrues) ---------- */
   function dataKey(name) { return BASE + '__data/' + name; }
   C.saveData = function (name, obj) {
-    if (!('caches' in window)) return Promise.resolve();
+    if (!('caches' in window) || C.viewer) return Promise.resolve(); // consultation : rien n'est gardé
     return caches.open(DATA_CACHE).then(function (c) {
       return c.put(dataKey(name), new Response(JSON.stringify({ savedAt: new Date().toISOString(), data: obj }, function (k, v) { return k === '_layer' ? undefined : v; }),
         { headers: { 'Content-Type': 'application/json' } }));
     }).catch(function (e) { console.warn('saveData', name, e); });
   };
   C.loadData = function (name) {
-    if (!('caches' in window)) return Promise.resolve(null);
+    if (!('caches' in window) || C.viewer) return Promise.resolve(null);
     return caches.open(DATA_CACHE).then(function (c) { return c.match(dataKey(name)); })
       .then(function (r) { return r ? r.json() : null; }).catch(function () { return null; });
   };

@@ -203,14 +203,15 @@
   /* ======================= Onglet Export ======================= */
   var FORMATS = [['kmz', 'KMZ'], ['kml', 'KML'], ['gpx', 'GPX'], ['geojson', 'GeoJSON'], ['dxf', 'DXF']];
   var FORMAT_HINTS = { kmz: 'Google Earth, avec styles et icônes.', kml: 'Google Earth / Maps, texte (sans icônes embarquées).', gpx: 'GPS de randonnée, Garmin… (points et traces).', geojson: 'SIG (QGIS…), applis web.', dxf: 'AutoCAD, en Lambert 93 (mètres), un calque par dossier.' };
-  var defaultVec = { rte_aer: ['v_rte_aer'], rte_pyl: ['v_rte_pyl'], rte_sout: ['v_rte_sout'], rte_postes: ['v_rte_postes'], hta_aer: ['v_hta_aer'], hta_sout: ['v_hta_sout'], bt: ['v_bt_aer', 'v_bt_sout'], gaz_distri: ['v_grdf'], gaz_transport: ['v_gaz'], canal_autres: ['v_hydro', 'v_chim'], sncf_lignes: ['v_sncf'], sncf_pn: ['v_sncf_pn'] };
+  var defaultVec = { rte_aer: ['v_rte_aer'], rte_pyl: ['v_rte_pyl'], rte_sout: ['v_rte_sout'], rte_postes: ['v_rte_postes'], hta_aer: ['v_hta_aer'], hta_sout: ['v_hta_sout'], bt: ['v_bt_aer', 'v_bt_sout'], gaz_distri: ['v_grdf'], gaz_transport: ['v_gaz'], canal_autres: ['v_hydro', 'v_chim'], sncf_lignes: ['v_sncf'], sncf_pn: ['v_sncf_pn'], routes: ['v_routes'] };
   C.tabs.export = function (el) {
     var a = C.activeDoc(), docs = C.docs.filter(function (d) { return d.role !== 'terrain'; });
     var html = '<h3>Documents PDF</h3><div class="tiles">' +
       ui.tile('atlas', '🗺', 'Atlas du chantier', 'Ensemble, série 1/2 500, une page par pylône') +
       ui.tile('report', '📝', 'Rapport de visite', 'Carte, ajouts terrain et fiches visitées, avec photos') +
+      '</div><h3>Lien de consultation</h3><div class="rows">' + ui.item('share', '🔗', 'Créer ou gérer un lien', 'Un chantier en lecture seule, sans ta clé, durée au choix') +
       '</div><h3>Fichier de cartographie</h3>';
-    var pdfActs = { atlas: function () { C.pdf.atlasDialog(); }, report: function () { C.pdf.reportDialog(); } };
+    var pdfActs = { atlas: function () { C.pdf.atlasDialog(); }, report: function () { C.pdf.reportDialog(); }, share: function () { C.share.dialog(); } };
     if (!docs.length) { el.innerHTML = html + '<p class="muted">Ouvre d\'abord un chantier.</p>'; U.onAct(el, pdfActs); return; }
     var vecOn = {}; Object.keys(C.active).forEach(function (id) { (defaultVec[id] || []).forEach(function (v) { vecOn[v] = true; }); });
     html += '<div id="exWrap"><div class="card"><b>Contenu à exporter</b>';
@@ -261,7 +262,7 @@
         var t = C.terrainOf(d);
         t.feats.forEach(function (f) {
           var o = { kind: f.kind, name: f.name, coords: f.coords, folder: (multi ? [U.baseName(d.name)] : []).concat(f.folder), desc: f.desc, data: (f.data || []).slice(), style: f.style };
-          if ((f.photos || []).some(function (p) { return p.url; })) o.descHtml = esc(f.desc || '') + '<br>' + f.photos.filter(function (p) { return p.url; }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; }).join(' · ');
+          if (C.linksHtml(f)) o.descHtml = esc(f.desc || '') + '<br>' + C.linksHtml(f);
           feats.push(o);
         });
       }

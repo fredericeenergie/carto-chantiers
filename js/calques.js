@@ -35,9 +35,11 @@
 
     /* --- Catalogue --- */
     html += '<h3>Tous les calques</h3>' + C.GROUPS.map(function (g) {
-      var k = g.items.filter(function (it) { return C.active[it.id]; }).length;
+      var items = g.items.filter(function (it) { return !(C.viewer && it.special === 'vigicrues'); }); // en consultation : pas de calque qui passe par la porte
+      var k = items.filter(function (it) { return C.active[it.id]; }).length;
+      if (!items.length) return '';
       return '<div class="grp' + (openG[g.id] ? ' open' : '') + '" data-group="' + g.id + '"><button type="button"><span>' + esc(g.label) + '</span>' + (k ? '<span class="count">' + k + '</span>' : '') + '<span class="chev">›</span></button><div class="items">' +
-        g.items.map(function (it) {
+        items.map(function (it) {
           return '<label class="check"><input type="checkbox" data-id="' + it.id + '"' + (C.active[it.id] ? ' checked' : '') + '><span class="grow">' + esc(it.label) +
             (it.hint ? '<span class="hint">' + esc(it.hint) + '</span>' : '') + '<span class="src">' + esc(it.src) + '</span></span></label>';
         }).join('') + '</div></div>';

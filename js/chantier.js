@@ -85,6 +85,7 @@
     var z12 = C.tilesAround(seqs, 12, BUFFER);
     if (o.items.indexOf('veg_rte') >= 0) z12.forEach(function (t) { plan.urls.push(C.vegUrl(t[0], t[1])); plan.estKB += 20; });
     if (o.items.indexOf('rte_num') >= 0) z12.forEach(function (t) { plan.urls.push(C.rteNumTileUrl(t[0], t[1])); plan.estKB += 10; });
+    if (o.items.indexOf('routes') >= 0) C.tilesAround(seqs, 14, BUFFER).forEach(function (t) { plan.urls.push(C.routesUrl(t[0], t[1])); plan.estKB += 120; });
     // légendes officielles des calques
     o.items.forEach(function (id) { if (C.ITEMS[id]) C.legendUrls(C.ITEMS[id]).forEach(function (u) { plan.urls.push(u); }); });
     return plan;
@@ -142,6 +143,19 @@
     if (preset) { d.q('#ofAll').checked = !!preset.all; est(); go(); }
   }
   C.offlineDialog = offlineDialog;
+  // À l'ouverture d'un chantier du Drive pas encore préparé : une proposition discrète, une fois par semaine au plus par chantier
+  C.proposeOffline = function (doc) {
+    if (C.viewer || !doc || doc.source !== 'drive' || !U.isOnline()) return;
+    var key = C.docKey(doc), asked = U.storeJSON('offlineAsked') || {};
+    if (C.offlineRegistry()[key] || (asked[key] && Date.now() - asked[key] < 7 * 86400000)) return;
+    var tries = 0;
+    setTimeout(function wait() { // après la fenêtre « Dossiers affichés », s'il y en a une
+      if ($('dlg').classList.contains('open') || $('dlg2').classList.contains('open') || $('busy').style.display === 'grid') { if (++tries < 180) setTimeout(wait, 1000); return; }
+      if (C.activeDoc() !== doc || C.offlineRegistry()[key]) return;
+      asked[key] = Date.now(); U.storeJSON('offlineAsked', asked);
+      U.toastAction('« ' + U.baseName(doc.name) + ' » n\'est pas prêt hors ligne.', 'Préparer', function () { offlineDialog(doc); }, 12000);
+    }, 1500);
+  };
 
   /* ======================= Paquets chantier ======================= */
   function paquetsDialog() {
@@ -234,7 +248,7 @@
       if (/\/dev\/?$/.test(p)) { st.textContent = '✗ Adresse en /dev : prends celle qui finit par /exec (Gérer les déploiements)'; return; }
       U.store('porte', p); U.store('cle', k); st.textContent = 'Test…';
       C.callPorte('ping').then(function (j) {
-        st.textContent = '✓ Connexion OK' + (j.version < 2 ? ' — ⚠ porte en version 1 : mets à jour Code.gs' : '');
+        st.textContent = '✓ Connexion OK — porte version ' + j.version + (j.version < 3 ? ' : recolle le nouveau Code.gs (liens de consultation, notes vocales)' : '');
         d.q('#rgHelp').innerHTML = '';
         C.refreshTab('chantier');
       }, function (e) {

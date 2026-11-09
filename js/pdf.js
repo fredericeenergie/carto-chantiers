@@ -447,9 +447,10 @@
     pdf.text(txt('GPS ' + f.coords[0].toFixed(6) + ', ' + f.coords[1].toFixed(6) + ' — Lambert 93 ' + Math.round(l[0]) + ' / ' + Math.round(l[1]) + (r['Statut'] ? ' — statut : ' + r['Statut'] : '')), 12, y);
     y += 4;
     C.fiche.SECTIONS.forEach(function (s) {
-      var rows = s.fields.filter(function (fd) { return r[fd.label] && fd.t !== 'photos'; });
+      var rows = s.fields.filter(function (fd) { return r[fd.label] && !C.fiche.isFile(fd); });
       var nph = s.fields.filter(function (fd) { return fd.t === 'photos' && r[fd.label]; }).map(function (fd) { return r[fd.label].split('\n').filter(Boolean).length; }).reduce(function (a, b) { return a + b; }, 0);
-      if (!rows.length && !nph) return;
+      var nau = s.fields.filter(function (fd) { return fd.t === 'audio' && r[fd.label]; }).map(function (fd) { return r[fd.label].split('\n').filter(Boolean).length; }).reduce(function (a, b) { return a + b; }, 0);
+      if (!rows.length && !nph && !nau) return;
       if (y > 270) { pdf.addPage('a4', 'portrait'); y = 16; }
       y += 5; pdf.setFillColor(232, 238, 245); pdf.rect(10, y - 4, W - 20, 6, 'F');
       pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9.5); pdf.setTextColor(22, 32, 42); pdf.text(txt(s.label), 12, y); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5);
@@ -461,6 +462,7 @@
         y += Math.max(4.4, val.length * 3.8 + 0.6);
       });
       if (nph) { pdf.setTextColor(93, 107, 120); pdf.text(txt(nph + ' photo(s) sur le Drive (liens dans le Google Sheet des fiches)'), 12, y); y += 4.4; }
+      if (nau) { pdf.setTextColor(93, 107, 120); pdf.text(txt(nau + ' note(s) vocale(s) sur le Drive (liens dans le Google Sheet des fiches)'), 12, y); y += 4.4; }
     });
     pdf.setFontSize(7.5); pdf.setTextColor(93, 107, 120);
     pdf.text(txt('Editeur : ' + meta.author + ' — version ' + meta.version + ' du ' + meta.date + ' — page ' + meta.page + ' / ' + meta.total), 12, 290);

@@ -37,9 +37,10 @@
     return inside;
   }
 
-  /* Lambert 93 (RGF93, GRS80) — formules IGN ALG0003/ALG0004 */
-  var L93 = (function () {
-    var a = 6378137, e = 0.0818191910428158, l0 = 3 * toR, p0 = 46.5 * toR, p1 = 44 * toR, p2 = 49 * toR, X0 = 700000, Y0 = 6600000;
+  /* Projection conique conforme de Lambert sécante (RGF93, GRS80) — formules IGN ALG0003/ALG0004.
+     Sert au Lambert 93 et aux neuf zones « coniques conformes » CC42 à CC50. Latitudes et longitudes en degrés. */
+  function lcc(lat0, lat1, lat2, lon0, X0, Y0) {
+    var a = 6378137, e = 0.0818191910428158, l0 = lon0 * toR, p0 = lat0 * toR, p1 = lat1 * toR, p2 = lat2 * toR;
     function m(p) { return Math.cos(p) / Math.sqrt(1 - e * e * Math.sin(p) * Math.sin(p)); }
     function t(p) { return Math.tan(Math.PI / 4 - p / 2) / Math.pow((1 - e * Math.sin(p)) / (1 + e * Math.sin(p)), e / 2); }
     var n = (Math.log(m(p1)) - Math.log(m(p2))) / (Math.log(t(p1)) - Math.log(t(p2)));
@@ -59,8 +60,12 @@
         return [lat / toR, lon / toR];
       }
     };
-  })();
+  }
+  var L93 = lcc(46.5, 44, 49, 3, 700000, 6600000);
+  // zone 42 à 50 : parallèle d'origine = numéro de zone, X0 = 1 700 000, Y0 = (zone − 41) × 1 000 000 + 200 000
+  var ccCache = {};
+  function CC(zone) { return ccCache[zone] || (ccCache[zone] = lcc(zone, zone - 0.75, zone + 0.75, 3, 1700000, (zone - 41) * 1000000 + 200000)); }
 
-  C.geo = { dist: dist, lineLength: lineLength, area: area, densify: densify, pointInRing: pointInRing, L93: L93 };
+  C.geo = { dist: dist, lineLength: lineLength, area: area, densify: densify, pointInRing: pointInRing, L93: L93, CC: CC };
   if (typeof module !== 'undefined') module.exports = C.geo;
 })();

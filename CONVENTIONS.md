@@ -1,6 +1,6 @@
 # Conventions — navigation, vocabulaire et code
 
-Ce fichier fixe les règles suivies depuis la v2.5. Tout ajout les respecte, pour que l'appli reste simple à utiliser et le code simple à reprendre.
+Ce fichier fixe les règles suivies depuis la v2.5 (complétées en v2.6). Tout ajout les respecte, pour que l'appli reste simple à utiliser et le code simple à reprendre.
 
 ## 1. Navigation
 
@@ -8,13 +8,14 @@ Ce fichier fixe les règles suivies depuis la v2.5. Tout ajout les respecte, pou
 
 | Où | Intention | Contenu |
 |---|---|---|
-| Bouton **Chantier** (haut) | Choisir | Fenêtre « Chantiers » : ouverts, ouvrir (Drive, appareil), créer (vierge, depuis un tableau) |
-| **Loupe** (haut) | Trouver | Adresse, lieu, coordonnées GPS ou Lambert 93 |
+| Bouton **Chantier** (haut) | Choisir | Fenêtre « Chantiers » : ouverts, ouvrir (Drive, appareil ; KMZ, KML, GPX, GeoJSON, DXF), créer (vierge, depuis un tableau) |
+| **Loupe** (haut) | Trouver | Adresse, lieu, coordonnées GPS ou Lambert 93 ; parcelle (commune, section, numéro) |
 | Bouton **Pylône** (haut) | Aller à | Sélecteur de pylône → fiche du point → fiche pylône |
+| Bouton **photo** (carte) | Photographier | Photo rangée seule : fiche du pylône à moins de 50 m, sinon ajout terrain |
 | Onglet **Calques** | Voir | Fond de carte, calques affichés (ordre, transparence, légende), catalogue |
 | Onglet **Terrain** | Relever | Mesurer, profil en long, ajouts terrain (point, ligne, zone), relecture |
 | Onglet **Chantier** | Préparer | Modifier le chantier, données (import, fiches, photos), hors ligne, paquets, réglages |
-| Onglet **Export** | Livrer | Atlas PDF, rapport PDF, fichier de cartographie |
+| Onglet **Export** | Livrer | Atlas PDF, rapport PDF, fichier de cartographie, lien de consultation |
 
 Règles :
 
@@ -25,6 +26,9 @@ Règles :
   - **tuile** = action immédiate, souvent sur la carte (le panneau se referme sur téléphone) ;
   - **ligne à chevron ›** = ouvre une fenêtre ;
   - **bouton bleu** = action principale, un seul par fenêtre ou par section d'onglet.
+- **Une proposition n'est jamais une fenêtre** : ce que l'appli suggère d'elle-même (nouvelle version, préparation hors ligne) passe par un message avec un bouton (`U.toastAction`), qui s'efface seul.
+- **Une saisie faite sur le terrain ne se perd pas sur un geste** : photo prise, dictée, formulaire modifié → fermer demande confirmation (`guard` de `C.openDialog`).
+- **Consultation** (`C.viewer`, lien `#vue=`) : l'appli ne mémorise rien (`U.store` en mémoire, `C.saveData` inactif), n'appelle la porte que par le jeton, et n'affiche que ce qui se lit : onglets Calques et Terrain (mesure, profil), pylônes, recherche. Toute nouvelle fonction qui écrit, ou qui passe par la clé, se masque dans ce mode.
 
 ## 2. Vocabulaire de l'interface
 
@@ -50,6 +54,8 @@ Un mot par action, le même partout.
 | **Changer** | Remplacer un choix : chantier actif, dossier, image | |
 | **Voir** | Montrer un élément sur la carte | |
 | **Arrêter** | Interrompre un téléchargement en cours | |
+| **Terminer** (dictée) | Finir une dictée et garder ce qui a été dit | Stop, OK |
+| **Copier** | Mettre un lien ou des coordonnées dans le presse-papiers | |
 
 Noms :
 
@@ -57,6 +63,9 @@ Noms :
 - **point, ligne, zone** : les trois formes. Ni « tracé » ni « polygone » pour une forme.
 - **ajout terrain** : ce qui est relevé sur site, rangé à part du chantier.
 - **Mon Drive** : la racine du Drive.
+- **lien de consultation** : le lien en lecture seule vers un chantier. « Lien d'installation » désigne seulement celui qui contient la clé.
+- **note vocale** : l'enregistrement audio d'une dictée. **fond de plan** : un plan importé affiché sous le chantier actif.
+- **calque AutoCAD** : un calque d'un fichier DXF (pour ne pas le confondre avec les calques de la carte).
 - Tutoiement partout. Questions de confirmation : le bouton reprend le verbe de l'action (« Supprimer », « Tout éteindre »), jamais « Oui » ou « OK ».
 
 ## 3. Fichiers
@@ -71,8 +80,13 @@ Noms :
 | `js/export.js` | Onglet **Export**, formats, réseaux publics, destinations |
 | `js/fiches.js`, `js/fiche.js` | Fiches pylônes : formulaire, import de tableaux ; liste des champs |
 | `js/pdf.js` | Atlas et rapport PDF |
-| `js/search.js` | Recherche de lieu |
-| `js/main.js` | Position de l'utilisateur, démarrage |
+| `js/search.js` | Recherche de lieu et de parcelle |
+| `js/photo.js` | Photo rapide (bouton photo de la carte) |
+| `js/voice.js` | Dictée vocale : texte et enregistrement audio |
+| `js/routes.js` | Calque « Routes et chemins » (BD TOPO) : praticabilité, limites |
+| `js/dxf.js` | Import d'un plan AutoCAD (DXF) : lecture, système de coordonnées, fenêtre d'import |
+| `js/share.js` | Lien de consultation : création et gestion ; mode consultation |
+| `js/main.js` | Position de l'utilisateur (suivi, position d'une prise de vue), démarrage |
 | `js/layers.js`, `js/geology.js`, `js/formats.js`, `js/parse.js`, `js/geo.js`, `js/offline.js` | Catalogue des calques, géologie, formats de fichiers, lecture, géométrie, hors ligne |
 | `css/app.css` | Style, téléphone d'abord ; sections numérotées, adaptations d'écran en fin de fichier |
 
@@ -80,9 +94,11 @@ Noms :
 
 ### Fonctions JavaScript
 - Identifiants en anglais, `camelCase` ; les noms du métier restent en français (`chantier`, `paquet`, `porte`, `fiche`).
-- Toute fonction qui ouvre une fenêtre finit par **`Dialog`** : `C.chantiersDialog`, `C.foldersDialog`, `C.driveDialog`, `C.pylonsDialog`, `C.searchDialog`, `C.settingsDialog`, `C.offlineDialog`, `C.paquetsDialog`, `C.fiches.ficheDialog`, `C.fiches.importDialog`, `C.tools.reviewDialog`, `C.pdf.atlasDialog`, `C.pdf.reportDialog`.
+- Toute fonction qui ouvre une fenêtre finit par **`Dialog`** : `C.chantiersDialog`, `C.foldersDialog`, `C.driveDialog`, `C.pylonsDialog`, `C.searchDialog`, `C.settingsDialog`, `C.offlineDialog`, `C.paquetsDialog`, `C.share.dialog` et `C.share.infoDialog`, `C.fiches.ficheDialog`, `C.fiches.importDialog`, `C.tools.reviewDialog`, `C.pdf.atlasDialog`, `C.pdf.reportDialog`.
 - Fenêtres génériques : `C.openDialog`, `C.closeDialog`, `C.requestClose`, `C.confirmDialog`, `C.promptDialog`, `C.choiceDialog`.
 - Onglets : `C.tabs.<id>` avec `<id>` ∈ `calques`, `terrain`, `chantier`, `export` ; `C.openPanel(id)`, `C.refreshTab(id, …)`.
+- Calque dessiné par un fichier à part : il s'inscrit dans `C.specialLayers.<special> = { layers: [...], refresh: fn }` et porte `special: '<special>'` dans le catalogue (`js/layers.js`). Exemple : `js/routes.js`.
+- Messages : `U.toast(texte, durée)` ; avec une action, `U.toastAction(texte, libellé, fn, durée)`.
 
 ### Identifiants HTML (`id`)
 `camelCase`, **préfixe de l'écran + rôle**. Un préfixe par écran ; les éléments uniques de l'écran principal portent leur nom propre (`map`, `panel`, `nav`, `toast`, `busy`, `scrim`, `pointSheet`, `measureBar`, `drawBar`, `chantierName`, `pylName`…) :
@@ -101,6 +117,8 @@ Noms :
 | `rv` | relecture des ajouts | | `at` | atlas PDF |
 | `fc` | fiche pylône | | `rp` | rapport PDF |
 | `pf` | profil en long | | `cf`, `pm` | confirmation, saisie d'un nom |
+| `ph` | photo rapide | | `vc` | barre de dictée |
+| `dx` | import DXF | | `sh` | liens de consultation |
 
 ### Attributs `data-`
 | Attribut | Sens |
@@ -111,17 +129,17 @@ Noms :
 | `data-id` | Identifiant d'un objet (calque, fichier du Drive, élément) |
 | `data-i` | Rang d'une ligne dans une liste à choisir |
 | `data-field`, `data-type`, `data-value`, `data-extra` | Champ de la fiche pylône : clé, type, valeur composée, colonne importée |
-| `data-folder`, `data-doc`, `data-terrain`, `data-vec`, `data-base`, `data-col` | Cases à cocher : dossier, chantier, ajouts terrain, réseau public, fond, colonne d'un tableau |
+| `data-folder`, `data-doc`, `data-terrain`, `data-vec`, `data-base`, `data-col`, `data-layer` | Cases à cocher : dossier, chantier, ajouts terrain, réseau public, fond, colonne d'un tableau, calque AutoCAD |
 | `data-group`, `data-sec`, `data-card`, `data-handle`, `data-opacity`, `data-step`, `data-fill` | Structure : groupe dépliable, section de fiche, carte de calque, poignée, curseur, pas précédent/suivant, compteur |
 | `data-close`, `data-close2`, `data-open-settings` | Raccourcis globaux : fermer la fenêtre, ouvrir les réglages |
 
 Pas d'attribut à une lettre.
 
 ### Classes CSS
-- **Composant** : un nom (`.chip`, `.tile`, `.base`, `.list-item`, `.rows`, `.card`, `.btn`, `.ico-btn`, `.field`, `.check`, `.chips`, `.seg`, `.grp`, `.lyr`, `.fsec`, `.tag`, `.badge`, `.fab`, `.bar`, `.sheet`).
-- **Partie d'un composant** : `composant-partie` (`.chip-label`, `.tile-ico`, `.item-title`, `.item-sub`, `.lyr-head`, `.sheet-close`, `.card-actions`, `.bar-value`).
-- **Variante** : mot accolé (`.btn.primary`, `.btn.danger`, `.btn.ghost`, `.btn.big`, `.ico-btn.sm`, `.tag.ok`, `.seg.tight`, `.sheet.wide`, `.sheet.compact`, `.card.hero`).
-- **État** : `.on` (choisi, actif), `.open` (déplié, ouvert), `.is-hidden` (calque masqué), `.dragging`, `.wait`, `.sel`.
+- **Composant** : un nom (`.chip`, `.tile`, `.base`, `.list-item`, `.rows`, `.card`, `.btn`, `.ico-btn`, `.field`, `.check`, `.chips`, `.seg`, `.grp`, `.lyr`, `.fsec`, `.tag`, `.badge`, `.fab`, `.bar`, `.sheet`, `.mic`, `.audios`).
+- **Partie d'un composant** : `composant-partie` (`.chip-label`, `.tile-ico`, `.item-title`, `.item-sub`, `.lyr-head`, `.sheet-close`, `.card-actions`, `.bar-value`, `.voice-bar`, `.voice-text`, `.photo-preview`, `.toast-btn`).
+- **Variante** : mot accolé (`.btn.primary`, `.btn.danger`, `.btn.ghost`, `.btn.big`, `.ico-btn.sm`, `.tag.ok`, `.seg.tight`, `.sheet.wide`, `.sheet.compact`, `.card.hero`, `.fab.fab-photo`).
+- **État** : `.on` (choisi, actif), `.open` (déplié, ouvert), `.is-hidden` (calque masqué), `.dragging`, `.wait`, `.sel` ; sur `body` : `.viewer` (consultation), `.far` (carte vue de loin).
 - **Utilitaires** : `.row`, `.grow`, `.push`, `.cols`, `.full`, `.mt`, `.muted`, `.small`, `.empty`, `.sep`.
 - Pas de classe à une lettre. Pas de `style="…"` de mise en page dans le JavaScript : seulement des valeurs issues des données (couleur d'une légende, vignette d'une photo, largeur d'une barre de progression).
 
@@ -141,5 +159,7 @@ Les formulaires longs utilisent `.cols` : une colonne sur téléphone, deux ou t
 ## 6. Avant de publier
 
 1. Passer la version dans `C.VERSION` (`js/core.js`) **et** `VERSION` (`sw.js`) ; ajouter tout nouveau fichier à `SHELL_FILES`.
+   Si `apps-script/Code.gs` change : augmenter son `VERSION`, laisser `PORTE_URL` vide, ne jamais y écrire de clé ni d'adresse `/exec` (le dépôt est public), et dire dans le README ce qui marche encore avec l'ancienne porte.
 2. Vérifier chaque écran en 390 × 844, 844 × 390, 820 × 1180, 1180 × 820 et 1440 × 900.
 3. Pour toute nouvelle fonction : un seul point d'entrée, les mots du tableau ci-dessus, trois appuis au plus.
+4. Vérifier le mode consultation : la fonction y est-elle utile en lecture seule ? Sinon, la masquer (`C.viewer`).

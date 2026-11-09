@@ -1,14 +1,15 @@
 /**
- * CARTO CHANTIERS — « porte » Google Apps Script — version 2
+ * CARTO CHANTIERS — « porte » Google Apps Script — version 3
  * ----------------------------------------------------------
  * Pont entre l'appli (https://fredericeenergie.github.io/carto-chantiers/) et ton Google Drive :
- *   - liste les fichiers de cartographie (KMZ, KML, GPX, GeoJSON) de la racine ;
+ *   - liste les fichiers de cartographie (KMZ, KML, GPX, GeoJSON, DXF) de la racine ;
  *   - parcourt les dossiers du Drive et lit un fichier de carto où qu'il soit ;
- *   - enregistre les exports, le fichier « terrain » et les photos ;
- *   - relaie le flux Vigicrues.
- * Chaque appel doit fournir la clé secrète.
+ *   - enregistre les exports, le fichier « terrain », les photos et les notes vocales ;
+ *   - relaie le flux Vigicrues ;
+ *   - sert les liens de consultation : un chantier en lecture seule, pour une durée choisie.
+ * Chaque appel doit fournir la clé secrète, sauf l'ouverture d'un chantier par son lien de consultation.
  *
- * Mise à jour depuis la v1 : remplacer tout ce fichier, enregistrer, puis
+ * Mise à jour depuis la v1 ou la v2 : remplacer tout ce fichier, enregistrer, puis
  *   Déployer > Gérer les déploiements > (crayon) Modifier > Version : Nouvelle version > Déployer.
  * L'adresse ne change pas : rien à refaire sur le téléphone.
  */
@@ -17,8 +18,8 @@ var APP_URL = 'https://fredericeenergie.github.io/carto-chantiers/';
 // Adresse de l'application Web, celle qui FINIT PAR /exec (Déployer > Gérer les déploiements > URL).
 // À coller ici si lienInstallation() affiche une adresse en /dev.
 var PORTE_URL = '';
-var VERSION = 2;
-var EXTENSIONS = ['kmz', 'kml', 'gpx', 'geojson', 'json'];
+var VERSION = 3;
+var EXTENSIONS = ['kmz', 'kml', 'gpx', 'geojson', 'json', 'dxf'];
 var MAX_ICON_BYTES = 150000;
 var MAX_ICONS = 60;
 var VIGICRUES_URL = 'https://www.vigicrues.gouv.fr/services/InfoVigiCru.geojson';
@@ -39,6 +40,9 @@ function doPost(e) {
 
 function handle_(p) {
   try {
+    // Lien de consultation : un jeton donne accès à UN chantier, en lecture seule, sans la clé.
+    if (p.action === 'partage') return json_({ ok: true, partage: partageLire_(p.jeton) });
+
     var cle = PropertiesService.getScriptProperties().getProperty('CLE');
     if (!cle) return json_({ ok: false, erreur: 'Clé non créée : exécuter creerCle() dans Apps Script.' });
     if (p.cle !== cle) return json_({ ok: false, erreur: 'Clé invalide.' });
@@ -60,6 +64,9 @@ function handle_(p) {
       case 'paquets':       return json_({ ok: true, paquets: paquets_() });
       case 'paquetEcrire':  return json_({ ok: true, paquets: paquetWrite_(p.paquet) });
       case 'paquetSupprimer': return json_({ ok: true, paquets: paquetDelete_(p.nom) });
+      case 'partages':         return json_({ ok: true, partages: partages_() });
+      case 'partageCreer':     var cree = partageCreer_(p); return json_({ ok: true, partage: cree, partages: partages_() });
+      case 'partageSupprimer': return json_({ ok: true, partages: partageSupprimer_(p.jeton) });
       default:              return json_({ ok: false, erreur: 'Action inconnue.' });
     }
   } catch (err) {
@@ -176,6 +183,8 @@ function loadMapFile_(id) {
   }
   base.type = (ext === 'json') ? 'geojson' : ext;
   base.text = blob.getDataAsString('UTF-8'); base.images = {};
+  // anciens DXF : accents enregistrés au format Windows
+  if (ext === 'dxf' && base.text.indexOf('\uFFFD') >= 0) base.text = blob.getDataAsString('windows-1252');
   return base;
 }
 
@@ -203,10 +212,13 @@ function save_(p) {
   return { id: f.getId(), name: f.getName(), url: f.getUrl() };
 }
 
+/** Photo ou note vocale. p.sousDossier (facultatif) : rangée dans ce sous-dossier, créé au besoin (« Notes vocales »). */
 function savePhoto_(p) {
-  if (!p.base64) throw new Error('Photo vide.');
+  if (!p.base64) throw new Error('Fichier vide.');
   var blob = Utilities.newBlob(Utilities.base64Decode(p.base64), p.mime || 'image/jpeg', p.nom || ('photo_' + Date.now() + '.jpg'));
-  var f = folderOf_(p.dossierId).createFile(blob);
+  var dossier = folderOf_(p.dossierId);
+  if (p.sousDossier) dossier = childFolder_(dossier, String(p.sousDossier).replace(/[\\\/]/g, '-'));
+  var f = dossier.createFile(blob);
   return { id: f.getId(), name: f.getName(), url: f.getUrl() };
 }
 
@@ -350,6 +362,58 @@ function paquetDelete_(nom) {
   var list = paquets_().filter(function (x) { return x.nom !== nom; });
   PropertiesService.getScriptProperties().setProperty('PAQUETS', JSON.stringify(list));
   return list;
+}
+
+/* ================== Liens de consultation (lecture seule) ================== */
+/* Chaque lien = un jeton tiré au hasard, lié à UN fichier, avec une date de fin facultative.
+   Le jeton ne permet que de lire ce fichier : ni la liste du Drive, ni l'écriture, ni les autres chantiers. */
+
+var MAX_PARTAGES = 20;
+
+function partages_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('PARTAGES') || '[]'); } catch (e) { return []; }
+}
+function partagesSave_(list) {
+  PropertiesService.getScriptProperties().setProperty('PARTAGES', JSON.stringify(list));
+  return list;
+}
+/** p.fichierId, p.nom, p.jours (7, 30 ou 0 = sans limite) */
+function partageCreer_(p) {
+  if (!p.fichierId) throw new Error('Chantier manquant : enregistre-le d\'abord sur le Drive.');
+  var f = DriveApp.getFileById(p.fichierId);
+  if (EXTENSIONS.indexOf(extensionOf_(f.getName())) < 0) throw new Error('Ce fichier n\'est pas un fichier de cartographie.');
+  var jours = Math.max(0, Math.min(365, parseInt(p.jours, 10) || 0));
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var now = Date.now();
+    // les liens expirés depuis plus de 30 jours s'effacent d'eux-mêmes
+    var list = partages_().filter(function (x) { return !x.expire || x.expire > now - 30 * 86400000; });
+    if (list.length >= MAX_PARTAGES) throw new Error(MAX_PARTAGES + ' liens existent déjà : supprime-en un avant d\'en créer un autre.');
+    var lien = {
+      jeton: Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8),
+      id: f.getId(), nom: String(p.nom || f.getName()).slice(0, 80),
+      cree: new Date(now).toISOString(), expire: jours ? now + jours * 86400000 : 0
+    };
+    partagesSave_([lien].concat(list));
+    return lien;
+  } finally { lock.releaseLock(); }
+}
+function partageSupprimer_(jeton) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try { return partagesSave_(partages_().filter(function (x) { return x.jeton !== jeton; })); } finally { lock.releaseLock(); }
+}
+/** Appelé SANS la clé : ne rend que le contenu du chantier lié au jeton, rien d'autre du Drive. */
+function partageLire_(jeton) {
+  jeton = String(jeton || '');
+  var lien = jeton.length >= 16 ? partages_().filter(function (x) { return x.jeton === jeton; })[0] : null;
+  if (!lien) throw new Error('Ce lien de consultation n\'existe plus.');
+  if (lien.expire && Date.now() > lien.expire) throw new Error('Ce lien de consultation a expiré.');
+  var f;
+  try { f = DriveApp.getFileById(lien.id); } catch (e) { f = null; }
+  if (!f || f.isTrashed()) throw new Error('Ce chantier n\'est plus disponible.');
+  var c = loadMapFile_(lien.id);
+  // ni l'identifiant du fichier, ni son dossier : le destinataire ne reçoit que la carte
+  return { nom: lien.nom, expire: lien.expire, fichier: { name: c.name, type: c.type, text: c.text, images: c.images } };
 }
 
 /* ================== Vigicrues ================== */

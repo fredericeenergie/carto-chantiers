@@ -201,7 +201,7 @@
 
   /* Modèle d'import : classeur Excel avec listes déroulantes et mode d'emploi */
   function templateWorkbook(pylons) {
-    var F = C.fiche, head = ['N°', 'Latitude', 'Longitude', 'X Lambert 93', 'Y Lambert 93'].concat(F.FIELDS.filter(function (f) { return f.t !== 'photos'; }).map(function (f) { return f.label; }));
+    var F = C.fiche, head = ['N°', 'Latitude', 'Longitude', 'X Lambert 93', 'Y Lambert 93'].concat(F.FIELDS.filter(function (f) { return !F.isFile(f); }).map(function (f) { return f.label; }));
     var rows = [head];
     (pylons || []).forEach(function (p) { var r = head.map(function () { return ''; }); r[0] = p.pylon; r[1] = p.lat.toFixed(7); r[2] = p.lon.toFixed(7); var l = C.geo.L93.fromWGS(p.lat, p.lon); r[3] = l[0].toFixed(2); r[4] = l[1].toFixed(2); rows.push(r); });
     if (rows.length === 1) rows.push(['12', '', '', '', '']);

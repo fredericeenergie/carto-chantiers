@@ -105,6 +105,7 @@ var Parse = (function(){
      ou tout point rangé dans un dossier dont le nom contient "pyl". */
   var PYL_RE = /^\s*(?:pyl[oô]nes?|pyl\.?|p|n°|no\.?|#)?\s*[-.]?\s*(\d{1,4}(?:\s?(?:bis|ter|[a-z]{1,2}))?)\b/i;
   function pylonLabel(pt){
+    if(/^“/.test(pt.name||'')) return null; // texte d'un plan (DXF), noté entre guillemets : une étiquette, pas un pylône
     var m = (pt.name||'').match(PYL_RE);
     if(m) return m[1].replace(/\s+/g,'').toUpperCase();
     if(pt.folder.some(function(f){ return /pyl/i.test(f); }) && pt.name) return pt.name.trim();

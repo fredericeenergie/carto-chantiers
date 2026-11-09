@@ -74,7 +74,8 @@
       { k: 'nota_env', label: 'Nota : environnement', t: 'long', auto: 'environnement' },
       { k: 'nota_contraintes', label: 'Nota : contraintes (saison, cultures, riverains)', t: 'long' },
       { k: 'nota_infos', label: 'Nota : infos diverses', t: 'long' },
-      { k: 'nota_photos', label: 'Nota : photos', t: 'photos' }
+      { k: 'nota_photos', label: 'Nota : photos', t: 'photos' },
+      { k: 'nota_audio', label: 'Nota : notes vocales', t: 'audio' }
     ]},
     { id: 'suivi', label: 'Suivi', fields: [
       { k: 'statut', label: 'Statut', t: 'choice', o: ['À visiter', 'Visité', 'Validé'] },
@@ -88,5 +89,8 @@
   var HEADERS = ['N°', 'Latitude', 'Longitude', 'X Lambert 93', 'Y Lambert 93'].concat(FIELDS.map(function (f) { return f.label; })).concat(['Modifié le']);
   var IMPORT_PREFIX = 'Infos importées : ';
 
-  C.fiche = { SECTIONS: SECTIONS, FIELDS: FIELDS, BY_KEY: BY_KEY, BY_LABEL: BY_LABEL, HEADERS: HEADERS, IMPORT_PREFIX: IMPORT_PREFIX };
+  // champs « pièces jointes » (photos, notes vocales) : une ligne « nom | lien » par fichier, jamais saisis à la main
+  function isFile(f) { return f.t === 'photos' || f.t === 'audio'; }
+
+  C.fiche = { SECTIONS: SECTIONS, FIELDS: FIELDS, BY_KEY: BY_KEY, BY_LABEL: BY_LABEL, HEADERS: HEADERS, IMPORT_PREFIX: IMPORT_PREFIX, isFile: isFile };
 })();

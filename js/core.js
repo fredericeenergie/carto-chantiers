@@ -3,12 +3,16 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.5.0';
+  C.VERSION = 'v2.6.0';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Utilitaires ======================= */
   var U = C.u = {};
+  // Consultation (lien en lecture seule, #vue=…) : rien n'est lu ni écrit dans la mémoire de l'appareil,
+  // pour ne pas toucher aux réglages et aux chantiers de la personne qui ouvre le lien.
+  var VIEW = /(^#|&)vue=/.test(location.hash), mem = {};
   U.store = function (k, v) {
+    if (VIEW) { if (v === undefined) return k in mem ? mem[k] : null; if (v === null) delete mem[k]; else mem[k] = String(v); return; }
     try {
       if (v === undefined) return localStorage.getItem('carto.' + k);
       if (v === null) localStorage.removeItem('carto.' + k); else localStorage.setItem('carto.' + k, v);
@@ -21,6 +25,14 @@
   U.toast = function (msg, ms) {
     var t = $('toast'); t.textContent = msg; t.style.display = 'block';
     clearTimeout(U.toast._t); U.toast._t = setTimeout(function () { t.style.display = 'none'; }, ms || 3000);
+  };
+  // message avec un bouton d'action (nouvelle version, proposition)
+  U.toastAction = function (msg, label, fn, ms) {
+    var t = $('toast'); t.textContent = msg + ' ';
+    var b = document.createElement('button'); b.className = 'btn toast-btn'; b.textContent = label;
+    b.onclick = function () { t.style.display = 'none'; fn(); };
+    t.appendChild(b); t.style.display = 'block';
+    clearTimeout(U.toast._t); U.toast._t = setTimeout(function () { t.style.display = 'none'; }, ms || 10000);
   };
   U.busy = function (on, txt) { $('busy').style.display = on ? 'grid' : 'none'; if (txt) $('busyTxt').textContent = txt; };
   U.esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
@@ -58,6 +70,7 @@
       var inp = $('filePick'); inp.value = ''; inp.accept = accept || ''; inp.multiple = false;
       if (capture) inp.setAttribute('capture', 'environment'); else inp.removeAttribute('capture');
       inp.onchange = function () { ok(inp.files && inp.files[0] ? inp.files[0] : null); };
+      inp.oncancel = function () { ok(null); };
       inp.click();
     });
   };
@@ -65,6 +78,7 @@
     return new Promise(function (ok) {
       var inp = $('filePick'); inp.value = ''; inp.accept = accept || ''; inp.multiple = true; inp.removeAttribute('capture');
       inp.onchange = function () { ok(inp.files ? Array.prototype.slice.call(inp.files) : []); };
+      inp.oncancel = function () { ok([]); };
       inp.click();
     });
   };
@@ -136,6 +150,7 @@
     var h = location.hash.replace(/^#/, '');
     if (!/porte=/.test(h)) return;
     var p = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) p[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
+    if (p.vue) { C.viewer = { token: p.vue, porte: p.porte }; return; } // le lien reste dans l'adresse : un rechargement garde la consultation
     if (p.porte && /\/dev\/?$/.test(p.porte)) C._devLink = true;
     else if (p.porte && p.cle) { U.store('porte', p.porte); U.store('cle', p.cle); C._justConfigured = true; }
     try { history.replaceState(null, '', location.pathname); } catch (e) { location.hash = ''; }
@@ -165,7 +180,7 @@
       '<li>Nouvelle version déployée mais <b>autorisations pas acceptées</b> : dans Apps Script, exécute <b>testerListe</b> et accepte.</li>' +
       '<li>Adresse collée qui finit par <b>/dev</b> au lieu de <b>/exec</b>, ou ancien déploiement supprimé.</li></ol>' +
       '<div class="row"><a class="btn" href="' + U.esc(C.porteTestUrl()) + '" target="_blank" rel="noopener">Tester la porte ↗</a><button class="btn" data-open-settings>Ouvrir les réglages</button></div>' +
-      '<p class="muted small">« Tester la porte » doit afficher <code>{"ok":true,"version":2}</code>. Une page de connexion Google ou un message d\'erreur indique le réglage à corriger.</p></div>';
+      '<p class="muted small">« Tester la porte » doit afficher <code>{"ok":true,"version":3}</code>. Une page de connexion Google ou un message d\'erreur indique le réglage à corriger.</p></div>';
   };
   document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-open-settings]'); if (b && C.settingsDialog) { C.closeDialog(2); C.closeDialog(1); C.settingsDialog(); } });
   C.callPorte = function (action, params) {
@@ -316,6 +331,7 @@
   C.openPanel = function (tab) {
     curTab = tab || curTab || 'calques';
     if (TABS.indexOf(curTab) < 0) curTab = { carte: 'calques', outils: 'terrain' }[curTab] || 'calques'; // onglets d'avant la v2.5
+    if (C.viewer && (curTab === 'chantier' || curTab === 'export')) curTab = 'calques';                  // consultation : voir et mesurer seulement
     TABS.forEach(function (t) { tabEl(t).classList.toggle('on', t === curTab); });
     document.querySelectorAll('#nav button, #ptabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === curTab); });
     if (C.tabs[curTab]) C.tabs[curTab](tabEl(curTab));
@@ -412,7 +428,10 @@
   var live = C.liveLayers = {};
   var opac = U.storeJSON('opacity') || {};
 
+  // calques dessinés par un autre fichier : C.specialLayers.<special> = { layers: [...], refresh: fn }
+  C.specialLayers = {};
   function buildItem(it) {
+    if (C.specialLayers[it.special]) return C.specialLayers[it.special].layers;
     if (it.special === 'vigicrues') return [vigiLayer];
     if (it.special === 'veg_rte') return [vegLayer];
     if (it.special === 'rte_num') return [rteNumLayer];
@@ -459,6 +478,7 @@
         if (it.special === 'vigicrues') refreshVigicrues();
         if (it.special === 'veg_rte') refreshVector(vegCfg);
         if (it.special === 'rte_num') refreshVector(rteNumCfg);
+        if (C.specialLayers[it.special]) C.specialLayers[it.special].refresh();
         if (it.minZoom && map.getZoom() < it.minZoom) U.toast('« ' + it.label + ' » : visible en zoomant davantage', 2500);
       }
     } else {
@@ -620,6 +640,10 @@
     return { n: la(y), s: la(y + 1), w: x / n * 360 - 180, e: (x + 1) / n * 360 - 180 };
   }
   C.z12Bounds = z12Bounds;
+  C.tileBounds = function (z, x, y) {
+    var n = Math.pow(2, z), la = function (t) { var r = Math.PI - 2 * Math.PI * t / n; return 180 / Math.PI * Math.atan(0.5 * (Math.exp(r) - Math.exp(-r))); };
+    return { n: la(y), s: la(y + 1), w: x / n * 360 - 180, e: (x + 1) / n * 360 - 180 };
+  };
   C.vegUrl = function (x, y) {
     var b = z12Bounds(x, y);
     var where = 'in_bbox(geo_point_2d, ' + b.s.toFixed(5) + ', ' + b.w.toFixed(5) + ', ' + b.n.toFixed(5) + ', ' + b.e.toFixed(5) + ')';
@@ -713,6 +737,15 @@
     for (var k = 0; k < w * hgt; k++) out.push(bps === 64 ? dv.getFloat64(off + k * 8, le) : dv.getFloat32(off + k * 4, le));
     return out;
   }
+  // référence cadastrale au point touché (API Carto IGN)
+  C.parcelRef = function (p) { return (p.nom_com || '') + ' — section ' + String(p.section || '?').replace(/^0+/, '') + ' n° ' + String(p.numero || '?').replace(/^0+/, ''); };
+  function parcelAt(latlng) {
+    var u = 'https://apicarto.ign.fr/api/cadastre/parcelle?geom=' + encodeURIComponent(JSON.stringify({ type: 'Point', coordinates: [latlng.lng, latlng.lat] }));
+    return U.withTimeout(fetch(u), 12000).then(function (r) { return r.json(); }).then(function (j) {
+      var p = j.features && j.features[0] && j.features[0].properties; if (!p) return '';
+      return '<div class="card"><h4>Parcelle cadastrale</h4><div><b>' + U.esc(C.parcelRef(p)) + '</b>' + (p.contenance ? ' · ' + U.fmtArea(+p.contenance) : '') + '</div></div>';
+    }).catch(function () { return ''; });
+  }
   C.queryInfo = function (latlng) {
     var z = map.getZoom(), res = 2 * 20037508.342789244 / (256 * Math.pow(2, z));
     var pt = L.CRS.EPSG3857.project(latlng), h = 50 * res;
@@ -732,6 +765,7 @@
     });
     var extra = [];
     if (specials.geol && C.geology) extra.push(C.geology.infoHtml(latlng.lat, latlng.lng));
+    if (specials.parcelle) extra.push(online ? parcelAt(latlng) : Promise.resolve('<p class="muted small">Référence de la parcelle : nécessite du réseau.</p>'));
     if (specials.mnh) extra.push(online ? mnhAt(latlng).then(function (v) {
       return '<div class="card"><h4>Hauteur LiDAR HD</h4><div>' + (v == null ? 'Pas de mesure ici (zone pas encore couverte ou zone protégée).' : 'Hauteur au-dessus du sol : <b>' + (v < 0.5 ? 'moins de 0,5 m' : v.toFixed(1).replace('.', ',') + ' m') + '</b> <span class="muted small">(arbres, bâtiments, pylônes…)</span>') + '</div></div>';
     }).catch(function () { return ''; }) : Promise.resolve(''));

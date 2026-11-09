@@ -105,8 +105,12 @@
       { id: 'sncf_pn', label: 'SNCF — passages à niveau', src: SRC.gb_sncf, info: true, offline: 16, minZoom: 12,
         defs: [wms(GB('sncf'), 'passage_niveau')] }
     ]},
+    { id: 'acces', label: 'Routes et accès', items: [
+      { id: 'routes', label: 'Routes et chemins — praticabilité', src: 'IGN BD TOPO®', special: 'routes', minZoom: 15,
+        hint: 'Revêtue, empierrée, chemin, sentier ; limites de tonnage et de hauteur quand elles sont connues' }
+    ]},
     { id: 'cad', label: 'Cadastre', items: [
-      { id: 'cadastre', label: 'Parcelles (limites et numéros)', src: SRC.ign, offline: 18, minZoom: 14, avgKB: 8, legendUrl: LEG + 'CADASTRALPARCELS.PARCELLAIRE_EXPRESS-legend.png',
+      { id: 'cadastre', label: 'Parcelles (limites et numéros)', src: SRC.ign, offline: 18, minZoom: 14, avgKB: 8, info: true, special_info: 'parcelle', legendUrl: LEG + 'CADASTRALPARCELS.PARCELLAIRE_EXPRESS-legend.png',
         defs: [ign('CADASTRALPARCELS.PARCELLAIRE_EXPRESS', 'image/png', 'PM_0_19', [0, 19], 'PCI vecteur')] }
     ]},
     { id: 'eau', label: 'Eau et inondations', items: [
@@ -288,6 +292,7 @@
     { id: 'v_chim', label: 'Produits chimiques', folder: 'Réseaux › Canalisations', color: '#7b1fa2', url: grWfs('C_PRODUITS_CHIM'), name: ['desc_ouv'] },
     { id: 'v_sncf', label: 'SNCF — lignes', folder: 'Réseaux › SNCF', color: '#37474f', url: gbWfs('sncf', 'ligne_ferroviaire'), name: ['lib_ligne', 'code_ligne'] },
     { id: 'v_bati', label: 'Bâtiments (BD TOPO)', folder: 'Bâti', color: '#8d6e63', url: ignWfs('BDTOPO_V3:batiment'), name: ['usage_1', 'nature'] },
+    { id: 'v_routes', label: 'Routes et chemins (BD TOPO)', folder: 'Routes et chemins', color: '#2e7d32', url: ignWfs('BDTOPO_V3:troncon_de_route'), name: ['nom_voie_ban_gauche', 'cpx_numero', 'nature'] },
     { id: 'v_sncf_pn', label: 'SNCF — passages à niveau', folder: 'Réseaux › SNCF', color: '#37474f', url: gbWfs('sncf', 'passage_niveau'), name: ['libelle', 'num_pn'] }
   ];
   function communesUrl(b) {

@@ -22,6 +22,33 @@
     if (follow) { if (firstFix) map.setView(ll, Math.max(map.getZoom(), 16)); else map.panTo(ll, { animate: true }); }
     firstFix = false;
   }
+  /* Position d'une prise de vue : le GPS est écouté dès l'appui sur le bouton photo, et lu au retour de la photo.
+     get(attente) résout avec { ll: [lat, lon], acc } — acc = précision en mètres —, ou null si aucune position n'arrive. */
+  C.trackPosition = function () {
+    var last = null, id = null, wake = null, guard = null;
+    function live() { return me ? { ll: [me.getLatLng().lat, me.getLatLng().lng], acc: meAcc ? meAcc.getRadius() : 0 } : null; }
+    function stop() { if (id != null) { navigator.geolocation.clearWatch(id); id = null; } clearTimeout(guard); }
+    if (navigator.geolocation && watch == null) {
+      id = navigator.geolocation.watchPosition(function (pos) { last = { ll: [pos.coords.latitude, pos.coords.longitude], acc: pos.coords.accuracy || 0 }; if (wake) wake(); },
+        function (err) { if (err && err.code === 1) { stop(); if (wake) wake(); } }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 });
+      guard = setTimeout(stop, 180000); // prise de vue abandonnée sans prévenir : le GPS ne reste pas allumé
+    }
+    return {
+      stop: stop,
+      get: function (wait, goodEnough) {
+        return new Promise(function (ok) {
+          var limit = goodEnough || 50, t = null, poll = null;
+          function cur() { return live() || last; }
+          function fine() { var c = cur(); return !!c && c.acc <= limit; }
+          function done() { clearTimeout(t); clearInterval(poll); wake = null; stop(); ok(cur()); }
+          if (fine() || (id == null && watch == null)) { done(); return; }
+          t = setTimeout(done, wait || 6000);
+          poll = setInterval(function () { if (fine()) done(); }, 400);  // suivi de position déjà en marche : on lit son point
+          wake = function () { if (id == null || fine()) done(); };      // position précise reçue, ou GPS refusé
+        });
+      }
+    };
+  };
   $('btnLocate').addEventListener('click', function () {
     if (!navigator.geolocation) { U.toast('Position indisponible sur cet appareil'); return; }
     if (watch != null && follow) { stopLocate(); U.toast('Suivi de position arrêté', 1500); return; }
@@ -47,20 +74,18 @@
     }).catch(function () {});
     navigator.serviceWorker.addEventListener('controllerchange', function () {
       if (!hadController) { hadController = true; return; }
-      var t = $('toast');
-      t.innerHTML = 'Nouvelle version de l\'appli installée. <button class="btn toast-btn" id="btnReload">Recharger</button>';
-      t.style.display = 'block'; clearTimeout(U.toast._t);
-      $('btnReload').onclick = function () { location.reload(); };
-      U.toast._t = setTimeout(function () { t.style.display = 'none'; }, 20000);
+      U.toastAction('Nouvelle version de l\'appli installée.', 'Recharger', function () { location.reload(); }, 20000);
     });
   }
   // à l'ordinateur le panneau reste ouvert ; par défaut sur l'onglet de préparation du chantier
-  if (U.isDesktop()) C.openPanel(U.store('tab') || 'chantier');
+  if (U.isDesktop()) C.openPanel(U.store('tab') || (C.viewer ? 'calques' : 'chantier'));
   window.addEventListener('resize', U.debounce(function () { if (U.isDesktop()) C.openPanel(); }, 300));
 
   // une adresse /dev déjà enregistrée (ancien lien) ne marche pas : on l'efface pour repartir des réglages
   if (/\/dev\/?$/.test(U.store('porte') || '')) { U.store('porte', ''); if (!C._devLink) U.toast('Adresse de porte en /dev effacée : il faut celle en /exec', 6000); }
-  if (C._devLink) {
+  if (C.viewer) {
+    C.share.openView(); // lien de consultation : un seul chantier, en lecture seule, rien n'est mémorisé
+  } else if (C._devLink) {
     /* la fenêtre d'explication s'ouvre seule */
   } else if (!C.porteConfigured()) {
     C.settingsDialog();

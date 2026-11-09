@@ -105,6 +105,25 @@
     el.insertBefore(box, el.firstChild);
   };
 
+  // note vocale d'une fiche ou d'un ajout : lien une fois envoyée, « en attente » avant
+  api.audioChip = function (line, i) {
+    var url = String(line).split(' | ')[1] || '';
+    return url ? '<a class="btn" target="_blank" rel="noopener" href="' + esc(url) + '">🎤 Note vocale ' + (i + 1) + '</a>' : '<span class="btn audio-wait">🎤 en attente d\'envoi</span>';
+  };
+  // Photo rapide : ajoute une photo à une rubrique de la fiche sans ouvrir le formulaire
+  api.addPhoto = function (doc, num, fieldKey, blob) {
+    var fd = F.BY_KEY[fieldKey] || F.BY_KEY.nota_photos, key = U.uid(), row = api.rowOf(doc, num) || {};
+    var name = 'P' + num + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg';
+    return C.sync.putBlob(key, blob).then(function () {
+      var vals = {}; vals[fd.label] = (row[fd.label] ? row[fd.label] + '\n' : '') + 'local:' + key;
+      if (!row['Auteur']) vals['Auteur'] = U.store('auteur') || 'Frédéric FATTORE';
+      setRow(doc, num, vals);
+      C.sync.add({ t: 'photo', key: C.docKey(doc), photo: key, name: name, target: 'fiche', chantier: U.baseName(doc.name) });
+      C.renderDoc(doc);
+      return fd;
+    });
+  };
+
   /* ======================= Formulaire ======================= */
   var pending = []; // photos ajoutées pendant l'édition
   api.ficheDialog = function (doc, f) {
@@ -170,7 +189,7 @@
       var vals = currentVals();
       if (vals['Auteur']) U.store('auteur', vals['Auteur']);
       // photos à envoyer
-      pending.forEach(function (p) { C.sync.add({ t: 'photo', key: C.docKey(doc), photo: p.key, name: p.name, target: 'fiche', chantier: U.baseName(doc.name) }); });
+      pending.forEach(function (p) { C.sync.add({ t: 'photo', key: C.docKey(doc), photo: p.key, name: p.name, target: 'fiche', chantier: U.baseName(doc.name), sub: p.sub || '' }); });
       pending = [];
       setRow(doc, num, vals);
       C.closeDialog(1); C.renderDoc(doc);
@@ -188,7 +207,12 @@
       var sel = fd.t === 'multi' ? v.split(/\s*,\s*/) : [v];
       return '<div class="field full" data-field="' + fd.k + '" data-type="' + fd.t + '">' + lab + '<div class="chips">' + fd.o.map(function (o) { return '<button type="button" data-val="' + esc(o) + '"' + (sel.indexOf(o) >= 0 ? ' class="on"' : '') + '>' + esc(o) + '</button>'; }).join('') + '</div></div>';
     }
-    if (fd.t === 'long') return '<label class="field full">' + lab + '<textarea data-field="' + fd.k + '">' + esc(v) + '</textarea></label>';
+    if (fd.t === 'long') return '<div class="field full"><span>' + esc(short) + (fd.auto ? '<span class="auto">⚙ auto</span>' : '') + C.voice.buttonHtml() + '</span><textarea data-field="' + fd.k + '" aria-label="' + esc(short) + '">' + esc(v) + '</textarea></div>';
+    if (fd.t === 'audio') {
+      var notes = v ? v.split(/\n/).filter(Boolean) : [];
+      return '<div class="field full" data-field="' + fd.k + '" data-type="audio" data-value="' + esc(v) + '">' + lab + '<div class="audios">' + notes.map(api.audioChip).join('') +
+        '<span class="muted small audios-hint"' + (notes.length ? ' hidden' : '') + '>Aucune pour l\'instant : le micro 🎤 d\'une note en ajoute une.</span></div></div>';
+    }
     if (fd.t === 'photos') {
       var items = v ? v.split(/\n/).filter(Boolean) : [];
       return '<div class="field full" data-field="' + fd.k + '" data-type="photos" data-value="' + esc(v) + '">' + lab + '<div class="photos">' + items.map(function (it) {
@@ -206,6 +230,19 @@
           if (multi) b.classList.toggle('on');
           else { var was = b.classList.contains('on'); ch.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); }); if (!was) b.classList.add('on'); }
         };
+      });
+    });
+    // dictée : le texte va dans le champ ; l'audio est rangé dans « Nota : notes vocales », nommé d'après le champ dicté
+    C.voice.attach(body, function (audio, field) {
+      var holder = body.querySelector('[data-field="nota_audio"]'); if (!holder) return;
+      var key = U.uid(), d = new Date();
+      var name = 'P' + (num || '') + '_' + (field.getAttribute('data-field') || 'note') + '_' + U.isoDay() + '_' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0') + '.' + audio.ext;
+      C.sync.putBlob(key, audio.blob).then(function () {
+        pending.push({ key: key, name: name, sub: 'Notes vocales' });
+        holder.setAttribute('data-value', (holder.getAttribute('data-value') ? holder.getAttribute('data-value') + '\n' : '') + 'local:' + key);
+        var hint = holder.querySelector('.audios-hint'); if (hint) hint.hidden = true;
+        holder.querySelector('.audios').insertAdjacentHTML('beforeend', '<span class="btn audio-wait">🎤 ' + C.voice.duration(audio.seconds) + ' · à envoyer</span>');
+        updateFill(body);
       });
     });
     body.querySelectorAll('[data-act="addPhoto"]').forEach(function (b) {
@@ -234,7 +271,7 @@
       var el = body.querySelector('[data-field="' + fd.k + '"]'); if (!el) return;
       var t = el.getAttribute('data-type');
       if (t === 'choice' || t === 'multi') vals[fd.label] = Array.prototype.map.call(el.querySelectorAll('.chips .on'), function (b) { return b.getAttribute('data-val'); }).join(', ');
-      else if (t === 'photos') vals[fd.label] = el.getAttribute('data-value') || '';
+      else if (t === 'photos' || t === 'audio') vals[fd.label] = el.getAttribute('data-value') || '';
       else vals[fd.label] = el.value;
     });
     return vals;
@@ -283,7 +320,7 @@
 
   /* ======================= Import de tableaux ======================= */
   var TARGETS = [['', '— Ignorer —'], ['num', 'N° du pylône'], ['lat', 'Latitude (GPS)'], ['lon', 'Longitude (GPS)'], ['x', 'X Lambert 93'], ['y', 'Y Lambert 93']]
-    .concat(F.FIELDS.filter(function (f) { return f.t !== 'photos'; }).map(function (f) { return [f.label, f.label]; }))
+    .concat(F.FIELDS.filter(function (f) { return !F.isFile(f); }).map(function (f) { return [f.label, f.label]; }))
     .concat([['extra', 'Infos importées (garder le titre)']]);
   function simplify(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
   function guess(h) {

@@ -20,9 +20,10 @@
   <button class="chip chip-search" id="btnSearch" title="Rechercher une adresse ou des coordonnées" aria-label="Rechercher une adresse"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg></button>
   <button class="chip chip-pyl" id="btnPyl" title="Aller à un pylône"><span class="chip-text"><span class="chip-label" id="pylLbl">Pylône</span><span class="chip-value" id="pylName">—</span></span><span class="caret">▾</span></button>
 </div>
-<div class="badges"><span id="offBadge" class="badge warn" hidden>Hors réseau</span><button id="syncBadge" class="badge" hidden></button></div>
+<div class="badges"><span id="offBadge" class="badge warn" hidden>Hors réseau</span><span id="viewBadge" class="badge" hidden></span><button id="syncBadge" class="badge" hidden></button></div>
 
 <div class="fabs">
+  <button class="fab fab-photo" id="btnPhoto" title="Photo rapide : rangée dans la fiche du pylône proche, sinon en point terrain" aria-label="Photo rapide"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
   <button class="fab" id="btnFit" title="Recentrer sur le chantier" aria-label="Recentrer sur le chantier"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   <button class="fab" id="btnLocate" title="Ma position" aria-label="Ma position"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
 </div>
@@ -92,12 +93,17 @@
 <script src="js/offline.js"></script>
 <script src="js/core.js"></script>
 <script src="js/geology.js"></script>
+<script src="js/routes.js"></script>
+<script src="js/voice.js"></script>
 <script src="js/docs.js"></script>
+<script src="js/dxf.js"></script>
 <script src="js/fiches.js"></script>
 <script src="js/calques.js"></script>
 <script src="js/tools.js"></script>
+<script src="js/photo.js"></script>
 <script src="js/chantier.js"></script>
 <script src="js/export.js"></script>
+<script src="js/share.js"></script>
 <script src="js/pdf.js"></script>
 <script src="js/search.js"></script>
 <script src="js/main.js"></script>
