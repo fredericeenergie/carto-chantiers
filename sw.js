@@ -1,5 +1,5 @@
 /* Service worker « Carto chantiers » : démarrage instantané, appli disponible sans réseau, tuiles préparées. */
-var VERSION = 'v2.2.1';
+var VERSION = 'v2.2.2';
 var SHELL = 'carto-shell-' + VERSION;
 var SHELL_FILES = [
   './', './index.html', './manifest.webmanifest', './css/app.css',

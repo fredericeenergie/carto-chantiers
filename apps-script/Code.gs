@@ -14,6 +14,9 @@
  */
 
 var APP_URL = 'https://fredericeenergie.github.io/carto-chantiers/';
+// Adresse de l'application Web, celle qui FINIT PAR /exec (Déployer > Gérer les déploiements > URL).
+// À coller ici si lienInstallation() affiche une adresse en /dev.
+var PORTE_URL = '';
 var VERSION = 2;
 var EXTENSIONS = ['kmz', 'kml', 'gpx', 'geojson', 'json'];
 var MAX_ICON_BYTES = 150000;
@@ -389,8 +392,14 @@ function creerCle() {
 function lienInstallation() {
   var cle = PropertiesService.getScriptProperties().getProperty('CLE');
   if (!cle) { creerCle(); cle = PropertiesService.getScriptProperties().getProperty('CLE'); }
-  var url = ScriptApp.getService().getUrl();
+  var url = PORTE_URL || ScriptApp.getService().getUrl();
   if (!url) { Logger.log('Déploie d\'abord le projet en Application Web, puis relance cette fonction.'); return; }
+  if (/\/dev$/.test(url)) {
+    Logger.log('⚠ L\'adresse trouvée finit par /dev : elle ne marche que dans l\'éditeur, pas dans l\'appli.\n' +
+      'Va dans Déployer > Gérer les déploiements, copie l\'URL de l\'application Web (elle finit par /exec),\n' +
+      'colle-la en haut du code dans PORTE_URL = \'…\'; enregistre, puis relance lienInstallation.');
+    return;
+  }
   Logger.log('Lien à ouvrir sur chaque appareil (ne le partage pas, il contient ta clé) :\n' +
     APP_URL + '#porte=' + encodeURIComponent(url) + '&cle=' + cle);
 }

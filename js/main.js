@@ -279,6 +279,7 @@
     d.q('#cfgSave').onclick = function () {
       var p = d.q('#cfgPorte').value.trim(), k = d.q('#cfgCle').value.trim();
       if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(p)) { d.q('#cfgStatus').textContent = 'Adresse invalide'; return; }
+      if (/\/dev\/?$/.test(p)) { d.q('#cfgStatus').textContent = '✗ Adresse en /dev : prends celle qui finit par /exec (Gérer les déploiements)'; return; }
       U.store('porte', p); U.store('cle', k); d.q('#cfgStatus').textContent = 'Test…';
       C.callPorte('ping').then(function (j) {
         d.q('#cfgStatus').textContent = '✓ Connexion OK' + (j.version < 2 ? ' — ⚠ porte en version 1 : mets à jour Code.gs' : '');
@@ -366,7 +367,11 @@
   if (U.isDesktop()) C.openPanel(U.store('tab') || 'outils');
   window.addEventListener('resize', U.debounce(function () { if (U.isDesktop()) C.openPanel(); }, 300));
 
-  if (!C.porteConfigured()) {
+  // une adresse /dev déjà enregistrée (ancien lien) ne marche pas : on l'efface pour repartir des réglages
+  if (/\/dev\/?$/.test(U.store('porte') || '')) { U.store('porte', ''); if (!C._devLink) U.toast('Adresse de porte en /dev effacée : il faut celle en /exec', 6000); }
+  if (C._devLink) {
+    /* la fenêtre d'explication s'ouvre seule */
+  } else if (!C.porteConfigured()) {
     settingsDialog();
   } else {
     if (C._justConfigured) U.toast('Porte Drive configurée ✓', 3000);

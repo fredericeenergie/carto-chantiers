@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.2.1';
+  C.VERSION = 'v2.2.2';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Outils ======================= */
@@ -104,9 +104,19 @@
     var h = location.hash.replace(/^#/, '');
     if (!/porte=/.test(h)) return;
     var p = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) p[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
-    if (p.porte && p.cle) { U.store('porte', p.porte); U.store('cle', p.cle); C._justConfigured = true; }
+    if (p.porte && /\/dev\/?$/.test(p.porte)) C._devLink = true;
+    else if (p.porte && p.cle) { U.store('porte', p.porte); U.store('cle', p.cle); C._justConfigured = true; }
     try { history.replaceState(null, '', location.pathname); } catch (e) { location.hash = ''; }
   })();
+  // lien d'installation fabriqué avec l'adresse /dev (réservée à l'éditeur Apps Script) : on l'explique au lieu de l'enregistrer
+  if (C._devLink) setTimeout(function () {
+    C.openDlg({ title: 'Lien d\'installation à refaire', body: '<p>Ce lien contient l\'adresse de la porte en <b>/dev</b>. Elle ne fonctionne que dans l\'éditeur Apps Script, pas dans l\'appli.</p>' +
+      '<ol class="small" style="padding-left:18px"><li>Dans Apps Script : <b>Déployer → Gérer les déploiements</b>, copie l\'<b>URL de l\'application Web</b> (elle finit par <b>/exec</b>).</li>' +
+      '<li>Colle-la en haut du code : <code>var PORTE_URL = \'…/exec\';</code> puis enregistre.</li>' +
+      '<li>Exécute <b>lienInstallation</b> et ouvre le nouveau lien.</li></ol>' +
+      '<p class="muted small">Ou colle directement l\'adresse /exec et la clé dans les réglages de la porte.</p>',
+      foot: '<button class="btn primary big" data-open-settings>Ouvrir les réglages de la porte</button>' });
+  }, 600);
   C.porteConfigured = function () { return !!(U.store('porte') && U.store('cle')); };
   // « Failed to fetch » : Google a renvoyé une page (connexion, autorisation, erreur) au lieu des données
   function porteNetErr(e) {
