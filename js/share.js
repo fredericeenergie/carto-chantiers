@@ -5,7 +5,6 @@
   'use strict';
   var C = window.Carto, U = C.u, $ = C.$, esc = U.esc;
   var S = C.share = {};
-  var PORTE_OK = /^(https:\/\/script\.google(usercontent)?\.com\/|http:\/\/(127\.0\.0\.1|localhost)[:\/])/; // Apps Script, ou la machine elle-même pour les essais
 
   function linkOf(token) { return location.origin + location.pathname + '#vue=' + token + '&porte=' + encodeURIComponent(U.store('porte') || ''); }
   function until(ms) { return ms ? 'jusqu\'au ' + U.fmtDate(new Date(ms).toISOString()) : 'sans limite de durée'; }
@@ -72,7 +71,7 @@
     ['chantier', 'export'].forEach(function (t) { document.querySelectorAll('[data-tab="' + t + '"]').forEach(function (b) { b.hidden = true; }); });
     $('btnPhoto').hidden = true;
     var badge = $('viewBadge'); badge.hidden = false; badge.textContent = '👁 Lecture seule';
-    if (!v.porte || !PORTE_OK.test(v.porte) || !/^[a-f0-9]{16,64}$/.test(v.token)) { refuse('Ce lien de consultation est incomplet ou abîmé.'); return; }
+    if (!v.porte || !C.PORTE_RE.test(v.porte) || !/^[a-f0-9]{16,64}$/.test(v.token)) { refuse('Ce lien de consultation est incomplet ou abîmé.'); return; }
     if (!U.isOnline()) { refuse('Pas de réseau : la consultation demande une connexion.'); return; }
     U.busy(true, 'Ouverture du chantier…');
     U.withTimeout(fetch(v.porte + '?action=partage&jeton=' + encodeURIComponent(v.token), { redirect: 'follow', credentials: 'omit' }), 60000)

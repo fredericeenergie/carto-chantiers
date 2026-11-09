@@ -83,6 +83,7 @@
 
   // une adresse /dev déjà enregistrée (ancien lien) ne marche pas : on l'efface pour repartir des réglages
   if (/\/dev\/?$/.test(U.store('porte') || '')) { U.store('porte', ''); if (!C._devLink) U.toast('Adresse de porte en /dev effacée : il faut celle en /exec', 6000); }
+  if (C._badLink) setTimeout(function () { U.toast('Lien d\'installation refusé : son adresse n\'est pas une porte Apps Script.', 7000); }, 1500);
   if (C.viewer) {
     C.share.openView(); // lien de consultation : un seul chantier, en lecture seule, rien n'est mémorisé
   } else if (C._devLink) {
@@ -91,10 +92,22 @@
     C.settingsDialog();
   } else {
     if (C._justConfigured) U.toast('Porte Drive configurée ✓', 3000);
+    // lien d'installation d'une AUTRE porte que celle de l'appareil : jamais remplacée sans accord (tes envois partiraient ailleurs)
+    if (C._otherPorte) setTimeout(function () {
+      C.confirmDialog('Ce lien d\'installation règle une autre porte Drive que celle de cet appareil. Si tu la remplaces, l\'appli lira et enregistrera sur l\'autre Drive. Ne le fais que si ce lien vient de ton propre Apps Script.', 'Remplacer la porte', true, 'Garder la mienne').then(function (y) {
+        if (!y) { U.toast('Porte inchangée', 2500); return; }
+        U.store('porte', C._otherPorte.porte); U.store('cle', C._otherPorte.cle); location.reload();
+      });
+    }, 1200);
     C.restoreOpenDocs().then(function (n) {
       if (n) { C.fitDocs(C.activeDoc()); } else C.chantiersDialog();
       C.sync.run();
     }).catch(function () { C.chantiersDialog(); });
-    C.callPorte('ping').then(function (j) { if (j.version < 2) U.toast('Ta porte Apps Script est en version 1 : recolle le nouveau Code.gs (voir README) pour les nouvelles fonctions', 8000); }).catch(function () {});
+    // porte plus ancienne que l'appli : un rappel, pas plus d'une fois par semaine
+    C.callPorte('ping').then(function (j) {
+      if (j.version >= 3 || Date.now() - (+U.store('porteRappel') || 0) < 7 * 86400000) return;
+      U.store('porteRappel', String(Date.now()));
+      setTimeout(function () { U.toast('Ta porte Apps Script est en version ' + j.version + ' : recolle le nouveau Code.gs (voir README) pour les liens de consultation et le dossier « Notes vocales ».', 9000); }, 4000);
+    }).catch(function () {});
   }
 })();

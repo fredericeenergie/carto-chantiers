@@ -124,6 +124,8 @@ Dans ce dépôt, ouvre **Settings → Pages**. Pour « Source », choisis **Depl
 
 Ne partage pas ce lien d'installation : il contient ta clé. La porte peut **écrire** sur ton Drive. Pour montrer un chantier à quelqu'un, utilise un **lien de consultation** (onglet Export), qui ne contient pas la clé.
 
+N'ouvre un lien d'installation que s'il vient de ton propre Apps Script. Par précaution, l'appli refuse un lien dont l'adresse n'est pas une porte Apps Script, et **demande avant de remplacer** une porte déjà réglée par une autre.
+
 Vérifier la version de la porte : onglet **Chantier → Réglages → Enregistrer et tester** affiche « Connexion OK — porte version 3 ».
 
 ### 3. Téléphone

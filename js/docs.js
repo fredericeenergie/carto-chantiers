@@ -16,9 +16,9 @@
     // photos des ajouts terrain : « nom | url » par ligne
     feats.forEach(function (f) {
       var ph = (f.data || []).filter(function (d) { return d[0] === 'Photos'; })[0];
-      if (ph) f.photos = ph[1].split(/\n/).map(function (l) { var a = l.split(' | '); return a[1] ? { name: a[0], url: a[1], id: (a[1].match(/\/d\/([^/]+)/) || [])[1] } : null; }).filter(Boolean);
+      if (ph) f.photos = ph[1].split(/\n/).map(function (l) { var a = l.split(' | '), u = U.safeUrl(a[1]); return u ? { name: a[0], url: u, id: (u.match(/\/d\/([^/]+)/) || [])[1] } : null; }).filter(Boolean);
       var au = (f.data || []).filter(function (d) { return d[0] === 'Notes vocales'; })[0];
-      if (au) f.audios = au[1].split(/\n/).map(function (l) { var a = l.split(' | '); return a[1] ? { name: a[0], url: a[1] } : null; }).filter(Boolean);
+      if (au) f.audios = au[1].split(/\n/).map(function (l) { var a = l.split(' | '), u = U.safeUrl(a[1]); return u ? { name: a[0], url: u } : null; }).filter(Boolean);
     });
     return feats;
   }
@@ -203,7 +203,9 @@
     return doc;
   };
   C.addSharedDoc = function (r) {
-    var doc = newDoc({ id: null, name: r.name, source: 'share', role: 'chantier', images: r.images || {}, feats: C.parsePayload(r), parent: null });
+    // icônes du chantier partagé : seulement des images embarquées, aucune adresse extérieure
+    var images = {}; Object.keys(r.images || {}).forEach(function (k) { if (/^data:image\/(png|jpeg|gif);base64,/.test(r.images[k])) images[k] = r.images[k]; });
+    var doc = newDoc({ id: null, name: String(r.name || 'Chantier'), source: 'share', role: 'chantier', images: images, feats: C.parsePayload(r), parent: null });
     addDoc(doc); fit(doc);
     return doc;
   };
@@ -603,7 +605,8 @@
   function photoThumb(p) {
     var bg = p.thumb ? 'background-image:url(' + p.thumb + ')' : '';
     var inner = p.thumb ? '' : (p.id ? '☁' : '⏳');
-    return p.url ? '<a class="ph" target="_blank" rel="noopener" href="' + esc(p.url) + '" style="' + bg + '">' + inner + '</a>' : '<span class="ph" style="' + bg + '" title="En attente d\'envoi">' + inner + '</span>';
+    var url = U.safeUrl(p.url);
+    return url ? '<a class="ph" target="_blank" rel="noopener" href="' + esc(url) + '" style="' + bg + '">' + inner + '</a>' : '<span class="ph" style="' + bg + '" title="En attente d\'envoi">' + inner + '</span>';
   }
   C.photoThumb = photoThumb;
   // garde le point visible à côté de la fiche (en bas sur téléphone, à droite en paysage et sur ordinateur)
@@ -638,8 +641,8 @@
 
   // liens vers les pièces jointes déjà envoyées sur le Drive : « Photo 1 · Photo 2 · Note vocale 1 »
   function linksHtml(f) {
-    var ph = (f.photos || []).filter(function (p) { return p.url; }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; });
-    var au = (f.audios || []).filter(function (a) { return a.url; }).map(function (a, i) { return '<a href="' + esc(a.url) + '">Note vocale ' + (i + 1) + '</a>'; });
+    var ph = (f.photos || []).filter(function (p) { return U.safeUrl(p.url); }).map(function (p, i) { return '<a href="' + esc(p.url) + '">Photo ' + (i + 1) + '</a>'; });
+    var au = (f.audios || []).filter(function (a) { return U.safeUrl(a.url); }).map(function (a, i) { return '<a href="' + esc(a.url) + '">Note vocale ' + (i + 1) + '</a>'; });
     return ph.concat(au).join(' · ');
   }
   C.linksHtml = linksHtml;

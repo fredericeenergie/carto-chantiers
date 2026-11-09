@@ -35,6 +35,8 @@
     clearTimeout(U.toast._t); U.toast._t = setTimeout(function () { t.style.display = 'none'; }, ms || 10000);
   };
   U.busy = function (on, txt) { $('busy').style.display = on ? 'grid' : 'none'; if (txt) $('busyTxt').textContent = txt; };
+  // lien venu d'un fichier ou d'un tableau : seules les adresses web sont gardées (jamais « javascript: » et consorts)
+  U.safeUrl = function (u) { u = String(u == null ? '' : u).trim(); return /^https?:\/\//i.test(u) ? u : ''; };
   U.esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   U.natural = function (a, b) { return String(a).localeCompare(String(b), 'fr', { numeric: true, sensitivity: 'base' }); };
   U.fmtBytes = function (b) { if (b < 1048576) return Math.max(1, Math.round(b / 1024)) + ' Ko'; return (b / 1048576).toFixed(b < 10485760 ? 1 : 0).replace('.', ',') + ' Mo'; };
@@ -146,13 +148,19 @@
   };
 
   /* ======================= Porte Drive ======================= */
+  // une porte est toujours une application Apps Script (ou la machine elle-même, pour les essais)
+  C.PORTE_RE = /^(https:\/\/script\.google(usercontent)?\.com\/|http:\/\/(127\.0\.0\.1|localhost)[:\/])/;
   (function readSetupHash() {
     var h = location.hash.replace(/^#/, '');
     if (!/porte=/.test(h)) return;
     var p = {}; h.split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) p[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
     if (p.vue) { C.viewer = { token: p.vue, porte: p.porte }; return; } // le lien reste dans l'adresse : un rechargement garde la consultation
     if (p.porte && /\/dev\/?$/.test(p.porte)) C._devLink = true;
-    else if (p.porte && p.cle) { U.store('porte', p.porte); U.store('cle', p.cle); C._justConfigured = true; }
+    else if (p.porte && p.cle) {
+      if (!C.PORTE_RE.test(p.porte)) C._badLink = true;                                                        // adresse qui n'est pas une porte : rien n'est enregistré
+      else if (U.store('porte') && U.store('cle') && U.store('porte') !== p.porte) C._otherPorte = { porte: p.porte, cle: p.cle }; // une autre porte est déjà réglée : on demande avant de la remplacer
+      else { U.store('porte', p.porte); U.store('cle', p.cle); C._justConfigured = true; }
+    }
     try { history.replaceState(null, '', location.pathname); } catch (e) { location.hash = ''; }
   })();
   // lien d'installation fabriqué avec l'adresse /dev (réservée à l'éditeur Apps Script) : on l'explique au lieu de l'enregistrer

@@ -107,7 +107,7 @@
 
   // note vocale d'une fiche ou d'un ajout : lien une fois envoyée, « en attente » avant
   api.audioChip = function (line, i) {
-    var url = String(line).split(' | ')[1] || '';
+    var url = U.safeUrl(String(line).split(' | ')[1]);
     return url ? '<a class="btn" target="_blank" rel="noopener" href="' + esc(url) + '">🎤 Note vocale ' + (i + 1) + '</a>' : '<span class="btn audio-wait">🎤 en attente d\'envoi</span>';
   };
   // Photo rapide : ajoute une photo à une rubrique de la fiche sans ouvrir le formulaire
@@ -216,7 +216,7 @@
     if (fd.t === 'photos') {
       var items = v ? v.split(/\n/).filter(Boolean) : [];
       return '<div class="field full" data-field="' + fd.k + '" data-type="photos" data-value="' + esc(v) + '">' + lab + '<div class="photos">' + items.map(function (it) {
-        var url = (it.split(' | ')[1] || ''); return url ? '<a class="ph" target="_blank" rel="noopener" href="' + esc(url) + '">☁</a>' : '<span class="ph">⏳</span>';
+        var url = U.safeUrl(it.split(' | ')[1]); return url ? '<a class="ph" target="_blank" rel="noopener" href="' + esc(url) + '">☁</a>' : '<span class="ph">⏳</span>';
       }).join('') + '<button type="button" class="ph add" data-act="addPhoto" title="Prendre ou choisir des photos">📷</button></div></div>';
     }
     var type = fd.t === 'number' ? 'number' : fd.t === 'date' ? 'date' : 'text';

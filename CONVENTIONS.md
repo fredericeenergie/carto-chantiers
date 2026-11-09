@@ -99,6 +99,7 @@ Noms :
 - Onglets : `C.tabs.<id>` avec `<id>` ∈ `calques`, `terrain`, `chantier`, `export` ; `C.openPanel(id)`, `C.refreshTab(id, …)`.
 - Calque dessiné par un fichier à part : il s'inscrit dans `C.specialLayers.<special> = { layers: [...], refresh: fn }` et porte `special: '<special>'` dans le catalogue (`js/layers.js`). Exemple : `js/routes.js`.
 - Messages : `U.toast(texte, durée)` ; avec une action, `U.toastAction(texte, libellé, fn, durée)`.
+- Contenu venu d'un fichier, d'un tableau ou d'un lien : texte toujours passé par `U.esc` avant d'entrer dans du HTML ; adresse toujours passée par `U.safeUrl` avant d'entrer dans un `href` ; adresse de porte toujours contrôlée par `C.PORTE_RE` avant tout appel.
 
 ### Identifiants HTML (`id`)
 `camelCase`, **préfixe de l'écran + rôle**. Un préfixe par écran ; les éléments uniques de l'écran principal portent leur nom propre (`map`, `panel`, `nav`, `toast`, `busy`, `scrim`, `pointSheet`, `measureBar`, `drawBar`, `chantierName`, `pylName`…) :
