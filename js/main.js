@@ -268,6 +268,7 @@
   }
 
   /* ======================= Réglages ======================= */
+  C.openSettings = function () { settingsDialog(); };
   function settingsDialog() {
     var d = C.openDlg({ title: 'Porte Drive', body: '<p class="muted">L\'appli lit et enregistre sur ton Drive via ta « porte » Apps Script. Le plus simple : ouvrir une fois, sur chaque appareil, le lien donné par la fonction <b>lienInstallation()</b>. Sinon, colle ici l\'adresse (se termine par /exec) et la clé.</p>' +
       '<label class="field"><span>Adresse de la porte</span><input type="text" id="cfgPorte" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(U.store('porte') || '') + '" autocomplete="off"></label>' +
@@ -282,7 +283,10 @@
       C.callPorte('ping').then(function (j) {
         d.q('#cfgStatus').textContent = '✓ Connexion OK' + (j.version < 2 ? ' — ⚠ porte en version 1 : mets à jour Code.gs' : '');
         C.refreshTab('carte');
-      }, function (e) { d.q('#cfgStatus').textContent = '✗ ' + (e.message || e); });
+      }, function (e) {
+        d.q('#cfgStatus').textContent = '✗ ' + (e.message || e);
+        if (!d.q('#cfgHelp')) { var h = document.createElement('div'); h.id = 'cfgHelp'; h.innerHTML = C.porteHelpHtml(); d.q('#cfgStore').parentNode.insertBefore(h, d.q('#cfgStore')); h.querySelector('[data-open-settings]').remove(); }
+      });
     };
   }
   function logoDialog() {

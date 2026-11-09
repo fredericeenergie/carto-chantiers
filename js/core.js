@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.2.0';
+  C.VERSION = 'v2.2.1';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Outils ======================= */
@@ -108,13 +108,32 @@
     try { history.replaceState(null, '', location.pathname); } catch (e) { location.hash = ''; }
   })();
   C.porteConfigured = function () { return !!(U.store('porte') && U.store('cle')); };
+  // « Failed to fetch » : Google a renvoyé une page (connexion, autorisation, erreur) au lieu des données
+  function porteNetErr(e) {
+    if (e && e.message === 'timeout') throw new Error('La porte ne répond pas (délai dépassé). Réessaie.');
+    var u = U.store('porte') || '';
+    var why = /\/dev(\?|$)/.test(u) ? 'l\'adresse finit par /dev au lieu de /exec' : 'la porte renvoie une page Google au lieu des données';
+    var err = new Error('Porte injoignable : ' + why + '.');
+    err.porte = true; throw err;
+  }
+  C.porteTestUrl = function () { return (U.store('porte') || '') + '?action=ping&cle=' + encodeURIComponent(U.store('cle') || ''); };
+  C.porteHelpHtml = function () {
+    return '<div class="card" style="text-align:left;margin-top:10px"><b>Causes habituelles</b><ol class="small" style="margin:6px 0 8px;padding-left:18px">' +
+      '<li>Déploiement pas en <b>« Qui peut accéder : Tout le monde »</b> (Gérer les déploiements → ✎).</li>' +
+      '<li>Nouvelle version déployée mais <b>autorisations pas acceptées</b> : dans Apps Script, exécute <b>testerListe</b> et accepte.</li>' +
+      '<li>Adresse collée qui finit par <b>/dev</b> au lieu de <b>/exec</b>, ou ancien déploiement supprimé.</li></ol>' +
+      '<div class="row2"><a class="btn" href="' + U.esc(C.porteTestUrl()) + '" target="_blank" rel="noopener">Tester la porte ↗</a><button class="btn" data-open-settings>Réglages de la porte</button></div>' +
+      '<p class="muted small" style="margin:8px 0 0">« Tester la porte » doit afficher <code>{"ok":true,"version":2}</code>. Une page de connexion Google ou un message d\'erreur indique le réglage à corriger.</p></div>';
+  };
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-open-settings]'); if (b && C.openSettings) { C.closeDlg(1); C.openSettings(); } });
   C.callPorte = function (action, params) {
     if (!C.porteConfigured()) return Promise.reject(new Error('Porte Drive non réglée'));
     if (!U.isOnline()) return Promise.reject(new Error('Pas de réseau'));
     var u = U.store('porte') + '?action=' + encodeURIComponent(action) + '&cle=' + encodeURIComponent(U.store('cle'));
     for (var k in (params || {})) u += '&' + k + '=' + encodeURIComponent(params[k]);
     return U.withTimeout(fetch(u, { redirect: 'follow', credentials: 'omit' }), 60000)
-      .then(function (r) { if (!r.ok) throw new Error('Porte : erreur ' + r.status); return r.json(); })
+      .catch(porteNetErr)
+      .then(function (r) { if (!r.ok) throw new Error('Porte : erreur ' + r.status); return r.json().catch(function () { throw new Error('La porte a répondu une page au lieu de données (déploiement à vérifier).'); }); })
       .then(function (j) { if (!j.ok) throw new Error(j.erreur || 'Erreur de la porte'); return j; });
   };
   C.postPorte = function (action, body) {
@@ -122,6 +141,7 @@
     if (!U.isOnline()) return Promise.reject(new Error('Pas de réseau'));
     var b = Object.assign({}, body || {}, { action: action, cle: U.store('cle') });
     return U.withTimeout(fetch(U.store('porte'), { method: 'POST', body: JSON.stringify(b), redirect: 'follow', credentials: 'omit' }), 120000)
+      .catch(porteNetErr)
       .then(function (r) { if (!r.ok) throw new Error('Porte : erreur ' + r.status); return r.json(); })
       .then(function (j) { if (!j.ok) throw new Error(j.erreur || 'Erreur de la porte'); return j; });
   };

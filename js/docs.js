@@ -352,7 +352,7 @@
     C.callPorte('liste').then(function (j) { C.saveData('liste', j.fichiers); return { list: j.fichiers }; })
       .catch(function (e) { return C.loadData('liste').then(function (c) { if (c) return { list: c.data, saved: c.savedAt }; throw e; }); })
       .then(function (r) { renderRoot(d, r.list, r.saved); })
-      .catch(function (e) { d.q('#fRoot').innerHTML = '<div class="empty">' + (C.porteConfigured() ? 'Drive inaccessible : ' + esc(e.message || e) : 'Porte Drive pas encore réglée : onglet Carte → Réglages.') + '</div>'; });
+      .catch(function (e) { d.q('#fRoot').innerHTML = '<div class="empty">' + (C.porteConfigured() ? 'Drive inaccessible : ' + esc(e.message || e) + (e.porte || /HTTP|erreur 4|page/.test(e.message || '') ? C.porteHelpHtml() : '') : 'Porte Drive pas encore réglée : onglet Carte → Réglages.<div class="row2" style="justify-content:center;margin-top:8px"><button class="btn primary" data-open-settings>Régler la porte</button></div>') + '</div>'; });
   };
   function renderOpenList(d) {
     var el = d.q('#fOpen');
