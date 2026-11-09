@@ -249,10 +249,10 @@
       chk('atTab', 'Tableau des pylônes', 'N°, type, coordonnées GPS et Lambert 93, commune, statut', npyl > 0) +
       '<label class="field"><span>Fond de carte</span><select id="atBase">' + C.BASES.filter(function (b) { return !b.noOffline; }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === C.curBase ? ' selected' : '') + '>' + esc(b.label) + '</option>'; }).join('') + '</select></label>' +
       '<label class="field"><span>Titre</span><input type="text" id="atTitle" value="' + esc(U.baseName(a.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, '')) + '"></label>' +
-      '<div class="row2"><label class="field" style="flex:1"><span>Version</span><input type="text" id="atVer" value="01"></label><label class="field" style="flex:2"><span>Éditeur</span><input type="text" id="atAut" value="' + esc(U.store('auteur') || 'Frédéric FATTORE') + '"></label></div>' +
-      (U.store('logo') ? '<p class="muted small">Logo : celui enregistré dans Carte → Réglages.</p>' : '<p class="muted small">Pas de logo : ajoute-le dans Carte → Réglages pour l\'avoir dans le cartouche.</p>') +
+      '<div class="row"><label class="field"><span>Version</span><input type="text" id="atVer" value="01"></label><label class="field grow2"><span>Éditeur</span><input type="text" id="atAut" value="' + esc(U.store('auteur') || 'Frédéric FATTORE') + '"></label></div>' +
+      (U.store('logo') ? '<p class="muted small">Logo du cartouche : celui des réglages.</p>' : '<p class="muted small">Pas de logo dans le cartouche. <button class="btn ghost" data-open-settings>Ajouter un logo dans les réglages</button></p>') +
       '<p class="muted" id="atEst"></p>';
-    var d = C.openDlg({ title: 'Atlas A4 du chantier', body: html, foot: '<button class="btn primary big" id="atGo">Créer l\'atlas PDF</button>' });
+    var d = C.openDialog({ title: 'Atlas A4 du chantier', body: html, foot: '<button class="btn primary big" id="atGo">Créer l\'atlas PDF</button>' });
     function est() {
       var lat = (C.pylonsOf(a)[0] || {}).coords; lat = lat ? lat[0] : 46;
       var n = (d.q('#atOv').checked ? 1 : 0) + (d.q('#atLeg').checked ? 1 : 0) + (d.q('#atSer').checked ? seriesFrames(seriesPath(a), 2500, lat).length : 0) + (d.q('#atPyl').checked ? npyl : 0) + (d.q('#atTab').checked ? Math.ceil(npyl / 24) : 0) + (d.q('#atFull').checked ? npyl : 0);
@@ -263,7 +263,7 @@
       var o = { ov: d.q('#atOv').checked, ser: d.q('#atSer').checked, pyl: d.q('#atPyl').checked, pylSc: +d.q('#atPylSc').value, full: d.q('#atFull').checked, leg: d.q('#atLeg').checked, tab: d.q('#atTab').checked,
         base: d.q('#atBase').value, title: d.q('#atTitle').value || U.baseName(a.name), version: d.q('#atVer').value || '01', author: d.q('#atAut').value || '' };
       U.store('auteur', o.author);
-      C.closeDlg(1); P.atlas(a, o);
+      C.closeDialog(1); P.atlas(a, o);
     };
   };
   function chk(id, t, h, on) { return '<label class="check"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '><span class="grow">' + esc(t) + '<span class="hint">' + esc(h) + '</span></span></label>'; }
@@ -471,8 +471,8 @@
   P.reportDialog = function () {
     var a = C.activeDoc(); if (!a) { U.toast('Ouvre d\'abord un chantier'); return; }
     var today = U.isoDay();
-    var d = C.openDlg({ title: 'Rapport de visite', body: '<p class="muted">Compte rendu A4 de « ' + esc(U.baseName(a.name)) + ' » : carte de la visite, ajouts terrain et fiches visitées sur la période, avec photos.</p>' +
-      '<div class="row2"><label class="field" style="flex:1"><span>Du</span><input type="date" id="rpFrom" value="' + today + '"></label><label class="field" style="flex:1"><span>Au</span><input type="date" id="rpTo" value="' + today + '"></label></div>' +
+    var d = C.openDialog({ title: 'Rapport de visite', body: '<p class="muted">Compte rendu A4 de « ' + esc(U.baseName(a.name)) + ' » : carte de la visite, ajouts terrain et fiches visitées sur la période, avec photos.</p>' +
+      '<div class="row"><label class="field"><span>Du</span><input type="date" id="rpFrom" value="' + today + '"></label><label class="field"><span>Au</span><input type="date" id="rpTo" value="' + today + '"></label></div>' +
       '<label class="field"><span>Objet de la visite</span><input type="text" id="rpObj" placeholder="ex. Reconnaissance des accès, état des embases…"></label>' +
       '<label class="field"><span>Participants</span><input type="text" id="rpPart" value="' + esc(U.store('auteur') || 'Frédéric FATTORE') + '"></label>' +
       '<label class="field"><span>Observations générales</span><textarea id="rpObs"></textarea></label>' +
@@ -480,7 +480,7 @@
       foot: '<button class="btn primary big" id="rpGo">Créer le rapport PDF</button>' });
     d.q('#rpGo').onclick = function () {
       var o = { from: d.q('#rpFrom').value, to: d.q('#rpTo').value, obj: d.q('#rpObj').value, part: d.q('#rpPart').value, obs: d.q('#rpObs').value, photos: d.q('#rpPh').checked };
-      C.closeDlg(1); P.report(a, o);
+      C.closeDialog(1); P.report(a, o);
     };
   };
   function parseFrDate(s) { var m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? m[3] + '-' + m[2] + '-' + m[1] : (String(s || '').match(/\d{4}-\d{2}-\d{2}/) || [''])[0]; }

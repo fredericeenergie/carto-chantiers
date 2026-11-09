@@ -1,7 +1,7 @@
-/* Carto chantiers — onglet Export : fichiers KMZ/KML/GPX/GeoJSON/DXF/CSV, réseaux publics en tracés, communes, destinations. */
+/* Carto chantiers — onglet « Export » : PDF (atlas, rapport), fichiers KMZ/KML/GPX/GeoJSON/DXF/CSV, réseaux publics en tracés, communes, destinations. */
 (function () {
   'use strict';
-  var C = window.Carto, U = C.u, $ = C.$, esc = U.esc;
+  var C = window.Carto, U = C.u, $ = C.$, esc = U.esc, ui = C.ui;
   var BUFFER = 1000;
 
   /* ======================= Destinations ======================= */
@@ -24,7 +24,7 @@
       U.toast('Partage de fichiers non pris en charge ici : téléchargement à la place', 4000);
       return C.deliver(files, { type: 'device' });
     }
-    var folder = dest.type === 'root' ? Promise.resolve({ id: 'root', name: 'Mon Drive' }) : C.browseDrive({ mode: 'folder' });
+    var folder = dest.type === 'root' ? Promise.resolve({ id: 'root', name: 'Mon Drive' }) : C.driveDialog({ mode: 'folder' });
     return folder.then(function (fd) {
       if (!fd) return;
       U.busy(true, 'Envoi sur le Drive…');
@@ -40,14 +40,14 @@
   };
   C.destChoices = function () {
     return [
-      { v: 'root', label: '☁ Racine de mon Drive', hint: 'Le fichier apparaîtra dans la liste de l\'appli' },
-      { v: 'folder', label: '📁 Dossier du Drive…', hint: 'Choisir le dossier' },
-      { v: 'device', label: '⬇ Sur cet appareil', hint: 'Téléchargement' },
-      { v: 'share', label: '↗ Partager', hint: 'Mail, WhatsApp, Drive…' }
+      { v: 'root', ico: '☁', label: 'Mon Drive', hint: 'À la racine : visible dans la liste des chantiers' },
+      { v: 'folder', ico: '📁', label: 'Un dossier du Drive…', hint: 'Choisir le dossier' },
+      { v: 'device', ico: '⬇', label: 'Cet appareil', hint: 'Téléchargement' },
+      { v: 'share', ico: '↗', label: 'Partager', hint: 'Mail, WhatsApp, Drive…' }
     ];
   };
   C.deliverDialog = function (blob, name) {
-    return C.choiceDlg('Enregistrer « ' + name + ' »', C.destChoices()).then(function (v) { if (v) return C.deliver([{ blob: blob, name: name }], { type: v }); });
+    return C.choiceDialog('Où enregistrer « ' + name + ' » ?', C.destChoices()).then(function (v) { if (v) return C.deliver([{ blob: blob, name: name }], { type: v }); });
   };
 
   /* ======================= Réseaux publics en tracés ======================= */
@@ -201,70 +201,54 @@
   };
 
   /* ======================= Onglet Export ======================= */
-  var FORMATS = [['kmz', 'KMZ'], ['kml', 'KML'], ['gpx', 'GPX'], ['geojson', 'GeoJSON'], ['dxf', 'DXF (AutoCAD)']];
+  var FORMATS = [['kmz', 'KMZ'], ['kml', 'KML'], ['gpx', 'GPX'], ['geojson', 'GeoJSON'], ['dxf', 'DXF']];
+  var FORMAT_HINTS = { kmz: 'Google Earth, avec styles et icônes.', kml: 'Google Earth / Maps, texte (sans icônes embarquées).', gpx: 'GPS de randonnée, Garmin… (points et traces).', geojson: 'SIG (QGIS…), applis web.', dxf: 'AutoCAD, en Lambert 93 (mètres), un calque par dossier.' };
   var defaultVec = { rte_aer: ['v_rte_aer'], rte_pyl: ['v_rte_pyl'], rte_sout: ['v_rte_sout'], rte_postes: ['v_rte_postes'], hta_aer: ['v_hta_aer'], hta_sout: ['v_hta_sout'], bt: ['v_bt_aer', 'v_bt_sout'], gaz_distri: ['v_grdf'], gaz_transport: ['v_gaz'], canal_autres: ['v_hydro', 'v_chim'], sncf_lignes: ['v_sncf'], sncf_pn: ['v_sncf_pn'] };
   C.tabs.export = function (el) {
     var a = C.activeDoc(), docs = C.docs.filter(function (d) { return d.role !== 'terrain'; });
-    var html = '<div id="exWrap"><h3>Fichier de cartographie</h3>';
-    if (!docs.length) { el.innerHTML = html + '<p class="muted">Ouvre d\'abord un fichier.</p></div>' + extraBlocks(); wireExtra(el); return; }
+    var html = '<h3>Documents PDF</h3><div class="tiles">' +
+      ui.tile('atlas', '🗺', 'Atlas du chantier', 'Ensemble, série 1/2 500, une page par pylône') +
+      ui.tile('report', '📝', 'Rapport de visite', 'Carte, ajouts terrain et fiches visitées, avec photos') +
+      '</div><h3>Fichier de cartographie</h3>';
+    var pdfActs = { atlas: function () { C.pdf.atlasDialog(); }, report: function () { C.pdf.reportDialog(); } };
+    if (!docs.length) { el.innerHTML = html + '<p class="muted">Ouvre d\'abord un chantier.</p>'; U.onAct(el, pdfActs); return; }
     var vecOn = {}; Object.keys(C.active).forEach(function (id) { (defaultVec[id] || []).forEach(function (v) { vecOn[v] = true; }); });
-    html += '<div class="card" style="margin-top:0"><b>Couches à exporter</b>';
+    html += '<div id="exWrap"><div class="card"><b>Contenu à exporter</b>';
     docs.forEach(function (d, di) {
       var keys = {}, order = [];
       d.feats.forEach(function (f) { var k = C.folderKey(f); if (keys[k] == null) { keys[k] = 0; order.push(k); } keys[k]++; });
-      html += '<div class="muted" style="margin:10px 0 2px;font-weight:700">' + esc(U.baseName(d.name)) + '</div>' + order.map(function (k) {
-        return '<label class="check"><input type="checkbox" data-doc="' + di + '" data-k="' + esc(k) + '"' + (d.visible && !d.hidden[k] ? ' checked' : '') + '><span class="grow">' + esc(k) + '<span class="hint">' + keys[k] + ' élément(s)</span></span></label>';
+      html += '<div class="card-sub">' + esc(U.baseName(d.name)) + '</div>' + order.map(function (k) {
+        return '<label class="check"><input type="checkbox" data-doc="' + di + '" data-folder="' + esc(k) + '"' + (d.visible && !d.hidden[k] ? ' checked' : '') + '><span class="grow">' + esc(k) + '<span class="hint">' + keys[k] + ' élément(s)</span></span></label>';
       }).join('');
       var t = C.terrainOf(d);
       if (t && t.feats.length) html += '<label class="check"><input type="checkbox" data-terrain="' + di + '" checked><span class="grow">Ajouts terrain<span class="hint">' + t.feats.length + ' élément(s), avec liens des photos</span></span></label>';
     });
     html += '<label class="check"><input type="checkbox" id="exFiches" checked><span class="grow">Joindre les fiches pylônes<span class="hint">Chaque pylône porte les champs de sa fiche</span></span></label>';
     var nVec = C.VECTORS.filter(function (v) { return vecOn[v.id]; }).length;
-    html += '<div class="grp" id="exVecG" style="margin-top:8px"><button type="button"><span>Réseaux publics en tracés<span class="muted small" style="display:block;font-weight:400">1 km autour de « ' + esc(a ? U.baseName(a.name) : '') + ' » — pré-cochés selon tes calques</span></span><span class="n" id="exVecN"' + (nVec ? '' : ' hidden') + '>' + nVec + '</span><span class="chev">›</span></button><div class="items">' +
+    html += '<div class="grp" id="exVecG"><button type="button"><span>Réseaux publics en tracés<span class="hint">1 km autour de « ' + esc(a ? U.baseName(a.name) : '') + ' » — pré-cochés selon tes calques</span></span><span class="count" id="exVecN"' + (nVec ? '' : ' hidden') + '>' + nVec + '</span><span class="chev">›</span></button><div class="items">' +
       C.VECTORS.map(function (v) { return '<label class="check"><input type="checkbox" data-vec="' + v.id + '"' + (vecOn[v.id] ? ' checked' : '') + '><span class="grow">' + esc(v.label) + '</span></label>'; }).join('') +
       '<label class="check"><input type="checkbox" id="exCom"><span class="grow">Limites des communes traversées</span></label></div></div></div>';
-    var fmt0 = U.store('exFmt') || 'kmz';
-    html += '<div class="card"><b>Format</b><div class="seg" id="exFmt" style="margin-top:6px">' + FORMATS.map(function (f) { return '<button data-f="' + f[0] + '"' + (f[0] === fmt0 ? ' class="on"' : '') + '>' + f[1].replace(' (AutoCAD)', '') + '</button>'; }).join('') + '</div>' +
+    var fmt = U.store('exFmt') || 'kmz';
+    html += '<div class="card"><b>Format</b><div class="seg tight" id="exFmt">' + FORMATS.map(function (f) { return '<button data-val="' + f[0] + '"' + (f[0] === fmt ? ' class="on"' : '') + '>' + f[1] + '</button>'; }).join('') + '</div>' +
       '<p class="muted small" id="exFmtHint"></p>' +
       '<label class="check"><input type="checkbox" id="exCsv" checked><span class="grow">+ Tableau CSV des pylônes<span class="hint">N°, GPS, Lambert 93, commune, statut, lien Waze</span></span></label>' +
       '<label class="check"><input type="checkbox" id="exCsvCom"><span class="grow">+ Liste des communes traversées (CSV)</span></label>' +
       '<label class="check"><input type="checkbox" id="exCsvTer"><span class="grow">+ Tableau des ajouts terrain (CSV)</span></label>' +
       '<label class="field"><span>Nom du fichier</span><input type="text" id="exName" value="' + esc((a ? U.baseName(a.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, '') : 'Export') + ' - export ' + U.isoDay()) + '"></label>' +
       '</div><div class="sticky-foot"><button class="btn primary big" id="exGo">Exporter…</button></div></div>';
-    html += extraBlocks();
     el.innerHTML = html;
-    var hints = { kmz: 'Google Earth, avec styles et icônes.', kml: 'Google Earth / Maps, texte (sans icônes embarquées).', gpx: 'GPS de randonnée, Garmin… (points et traces).', geojson: 'SIG (QGIS…), applis web.', dxf: 'AutoCAD, en Lambert 93 (mètres), un calque par dossier.' };
-    var fmt = fmt0; $('exFmtHint').textContent = hints[fmt];
-    el.querySelectorAll('#exFmt [data-f]').forEach(function (b) { b.onclick = function () { el.querySelectorAll('#exFmt [data-f]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on'); fmt = b.getAttribute('data-f'); U.store('exFmt', fmt); $('exFmtHint').textContent = hints[fmt]; }; });
+    U.onAct(el, pdfActs);
+    $('exFmtHint').textContent = FORMAT_HINTS[fmt];
+    U.pickOne($('exFmt'), function (v) { fmt = v; U.store('exFmt', fmt); $('exFmtHint').textContent = FORMAT_HINTS[fmt]; });
     var g = $('exVecG'); g.querySelector('button').onclick = function () { g.classList.toggle('open'); };
     g.addEventListener('change', function () { var n = g.querySelectorAll('[data-vec]:checked').length; $('exVecN').textContent = n; $('exVecN').hidden = !n; });
     $('exGo').onclick = function () { runExport(el, docs, a, fmt); };
-    wireExtra(el);
   };
-  function extraBlocks() {
-    return '<h3>PDF A4</h3><div class="tiles">' +
-      C.tools.tile('atlas', '🗺', 'Atlas du chantier', 'Ensemble + série 1/2 500 + une page par pylône') +
-      C.tools.tile('report', '📝', 'Rapport de visite', 'Carte, ajouts terrain et fiches visitées, avec photos') +
-      '</div><h3>Données</h3><div class="tiles">' +
-      C.tools.tile('import', '📊', 'Importer des données', 'CSV, Excel ou Google Sheet → fiches pylônes') +
-      C.tools.tile('model', '⬇', 'Modèle à remplir', 'Excel avec toutes les colonnes de la fiche') + '</div>';
-  }
-  function wireExtra(el) {
-    el.querySelectorAll('[data-t]').forEach(function (b) {
-      b.onclick = function () {
-        var k = b.getAttribute('data-t');
-        if (k === 'atlas') C.pdf.atlasDialog();
-        if (k === 'report') C.pdf.reportDialog();
-        if (k === 'import') C.fiches.importWizard({});
-        if (k === 'model') C.fiches.downloadTemplate();
-      };
-    });
-  }
   function runExport(el, docs, a, fmt) {
     var feats = [], images = {};
     var withF = $('exFiches').checked;
     docs.forEach(function (d, di) {
-      var keep = {}; el.querySelectorAll('[data-doc="' + di + '"]').forEach(function (c) { if (c.checked) keep[c.getAttribute('data-k')] = true; });
+      var keep = {}; el.querySelectorAll('[data-doc="' + di + '"]').forEach(function (c) { if (c.checked) keep[c.getAttribute('data-folder')] = true; });
       var multi = docs.length > 1;
       C.docFeaturesForExport(d, { withFiches: withF }).forEach(function (f, i) {
         if (!keep[C.folderKey(d.feats[i])]) return;
@@ -310,7 +294,7 @@
           if ($('exCsvCom').checked && coms) files.push({ blob: new Blob([C.formats.toCSV([['Commune', 'Code INSEE', 'Département']].concat(coms.map(function (c) { return [c.nom, c.insee, c.dep]; })))], { type: 'text/csv' }), name: name + ' - communes.csv' });
           U.busy(false); U.keepAwake(false);
           if (r.report.length) U.toast('Réseaux : ' + r.report.join(' · '), 7000);
-          return C.choiceDlg(files.length > 1 ? files.length + ' fichiers prêts — où les mettre ?' : '« ' + files[0].name + ' » — où le mettre ?', C.destChoices()).then(function (v) { if (v) return C.deliver(files, { type: v }); });
+          return C.choiceDialog(files.length > 1 ? 'Où enregistrer les ' + files.length + ' fichiers ?' : 'Où enregistrer « ' + files[0].name + ' » ?', C.destChoices()).then(function (v) { if (v) return C.deliver(files, { type: v }); });
         });
       });
     }).catch(function (e) { U.busy(false); U.keepAwake(false); U.toast('Export impossible : ' + (e.message || e), 6000); });

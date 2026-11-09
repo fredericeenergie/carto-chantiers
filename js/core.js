@@ -1,11 +1,12 @@
-/* Carto chantiers — noyau : outils, porte Drive, fenêtres, panneau, carte, fonds et calques. */
+/* Carto chantiers — noyau : utilitaires, composants d'interface, porte Drive, fenêtres, panneau et onglets, carte, fonds et calques.
+   Conventions de nommage : voir CONVENTIONS.md. */
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.4.0';
+  C.VERSION = 'v2.5.0';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
-  /* ======================= Outils ======================= */
+  /* ======================= Utilitaires ======================= */
   var U = C.u = {};
   U.store = function (k, v) {
     try {
@@ -99,6 +100,37 @@
   document.addEventListener('visibilitychange', function () { if (wake.n && document.visibilityState === 'visible') { wake.s = null; wakeGet(); } });
   U.isDesktop = function () { return window.matchMedia('(min-width: 900px) and (min-height: 561px)').matches; };
 
+
+  /* ======================= Composants d'interface ======================= */
+  // Un seul écouteur par conteneur : <button data-act="x" data-id="…"> appelle handlers.x(id, bouton).
+  // « root.onclick » est remplacé à chaque appel : pas d'écouteurs empilés quand un écran est redessiné.
+  U.onAct = function (root, handlers) {
+    root.onclick = function (e) {
+      var b = e.target.closest ? e.target.closest('[data-act]') : null;
+      if (!b || !root.contains(b) || b.disabled) return;
+      var h = handlers[b.getAttribute('data-act')];
+      if (h) h(b.hasAttribute('data-id') ? b.getAttribute('data-id') : b.getAttribute('data-i'), b, e);
+    };
+  };
+  // Groupe à choix unique (.seg, .chips) : le bouton choisi porte .on, sa valeur est dans data-val.
+  U.pickOne = function (group, onChange) {
+    group.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-val]') : null; if (!b || !group.contains(b)) return;
+      group.querySelectorAll('[data-val]').forEach(function (x) { x.classList.toggle('on', x === b); });
+      if (onChange) onChange(b.getAttribute('data-val'));
+    });
+  };
+  U.picked = function (group) { var b = group && group.querySelector('.on'); return b ? b.getAttribute('data-val') : ''; };
+  var ui = C.ui = {};
+  // Tuile = action immédiate (souvent sur la carte)
+  ui.tile = function (act, ico, title, sub, on) {
+    return '<button class="tile' + (on ? ' on' : '') + '" data-act="' + act + '"><span class="tile-ico">' + ico + '</span><b>' + title + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</button>';
+  };
+  // Ligne à chevron = ouvre une fenêtre
+  ui.item = function (act, ico, title, sub, right) {
+    return '<button class="list-item" data-act="' + act + '"><span class="item-ico">' + ico + '</span><span class="grow"><span class="item-title">' + title + '</span>' + (sub ? '<span class="item-sub">' + sub + '</span>' : '') + '</span>' + (right || '') + '<span class="caret">›</span></button>';
+  };
+
   /* ======================= Porte Drive ======================= */
   (function readSetupHash() {
     var h = location.hash.replace(/^#/, '');
@@ -110,12 +142,12 @@
   })();
   // lien d'installation fabriqué avec l'adresse /dev (réservée à l'éditeur Apps Script) : on l'explique au lieu de l'enregistrer
   if (C._devLink) setTimeout(function () {
-    C.openDlg({ title: 'Lien d\'installation à refaire', body: '<p>Ce lien contient l\'adresse de la porte en <b>/dev</b>. Elle ne fonctionne que dans l\'éditeur Apps Script, pas dans l\'appli.</p>' +
-      '<ol class="small" style="padding-left:18px"><li>Dans Apps Script : <b>Déployer → Gérer les déploiements</b>, copie l\'<b>URL de l\'application Web</b> (elle finit par <b>/exec</b>).</li>' +
+    C.openDialog({ title: 'Lien d\'installation à refaire', body: '<p>Ce lien contient l\'adresse de la porte en <b>/dev</b>. Elle ne fonctionne que dans l\'éditeur Apps Script, pas dans l\'appli.</p>' +
+      '<ol class="small steps"><li>Dans Apps Script : <b>Déployer → Gérer les déploiements</b>, copie l\'<b>URL de l\'application Web</b> (elle finit par <b>/exec</b>).</li>' +
       '<li>Colle-la en haut du code : <code>var PORTE_URL = \'…/exec\';</code> puis enregistre.</li>' +
       '<li>Exécute <b>lienInstallation</b> et ouvre le nouveau lien.</li></ol>' +
-      '<p class="muted small">Ou colle directement l\'adresse /exec et la clé dans les réglages de la porte.</p>',
-      foot: '<button class="btn primary big" data-open-settings>Ouvrir les réglages de la porte</button>' });
+      '<p class="muted small">Ou colle directement l\'adresse /exec et la clé dans les réglages.</p>',
+      foot: '<button class="btn primary big" data-open-settings>Ouvrir les réglages</button>' });
   }, 600);
   C.porteConfigured = function () { return !!(U.store('porte') && U.store('cle')); };
   // « Failed to fetch » : Google a renvoyé une page (connexion, autorisation, erreur) au lieu des données
@@ -128,14 +160,14 @@
   }
   C.porteTestUrl = function () { return (U.store('porte') || '') + '?action=ping&cle=' + encodeURIComponent(U.store('cle') || ''); };
   C.porteHelpHtml = function () {
-    return '<div class="card" style="text-align:left;margin-top:10px"><b>Causes habituelles</b><ol class="small" style="margin:6px 0 8px;padding-left:18px">' +
+    return '<div class="card help"><b>Causes habituelles</b><ol class="small steps">' +
       '<li>Déploiement pas en <b>« Qui peut accéder : Tout le monde »</b> (Gérer les déploiements → ✎).</li>' +
       '<li>Nouvelle version déployée mais <b>autorisations pas acceptées</b> : dans Apps Script, exécute <b>testerListe</b> et accepte.</li>' +
       '<li>Adresse collée qui finit par <b>/dev</b> au lieu de <b>/exec</b>, ou ancien déploiement supprimé.</li></ol>' +
-      '<div class="row2"><a class="btn" href="' + U.esc(C.porteTestUrl()) + '" target="_blank" rel="noopener">Tester la porte ↗</a><button class="btn" data-open-settings>Réglages de la porte</button></div>' +
-      '<p class="muted small" style="margin:8px 0 0">« Tester la porte » doit afficher <code>{"ok":true,"version":2}</code>. Une page de connexion Google ou un message d\'erreur indique le réglage à corriger.</p></div>';
+      '<div class="row"><a class="btn" href="' + U.esc(C.porteTestUrl()) + '" target="_blank" rel="noopener">Tester la porte ↗</a><button class="btn" data-open-settings>Ouvrir les réglages</button></div>' +
+      '<p class="muted small">« Tester la porte » doit afficher <code>{"ok":true,"version":2}</code>. Une page de connexion Google ou un message d\'erreur indique le réglage à corriger.</p></div>';
   };
-  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-open-settings]'); if (b && C.openSettings) { C.closeDlg(1); C.openSettings(); } });
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-open-settings]'); if (b && C.settingsDialog) { C.closeDialog(2); C.closeDialog(1); C.settingsDialog(); } });
   C.callPorte = function (action, params) {
     if (!C.porteConfigured()) return Promise.reject(new Error('Porte Drive non réglée'));
     if (!U.isOnline()) return Promise.reject(new Error('Pas de réseau'));
@@ -158,16 +190,19 @@
 
   /* ======================= Fenêtres ======================= */
   var dlgClose = {}, dlgGuard = {};
-  C.openDlg = function (o) {
+  C.openDialog = function (o) {
     var lvl = o.level === 2 ? '2' : '';
     var el = $('dlg' + lvl);
     $('dlg' + lvl + 'Title').textContent = o.title || '';
-    var body = $('dlg' + lvl + 'Body'); body.innerHTML = '';
+    // corps neuf à chaque ouverture : les écouteurs posés par la fenêtre précédente (change, input…) disparaissent avec elle
+    var old = $('dlg' + lvl + 'Body'), body = old.cloneNode(false); old.parentNode.replaceChild(body, old);
     if (typeof o.body === 'string') body.innerHTML = o.body; else if (o.body) body.appendChild(o.body);
     var foot = $('dlg' + lvl + 'Foot'); foot.innerHTML = o.foot || '';
     if (!lvl) { $('dlgHead').innerHTML = o.head || ''; }
     body.scrollTop = 0;
     el.classList.toggle('at-top', !!o.top); // fenêtre en haut de l'écran (saisie au clavier sur téléphone)
+    el.classList.toggle('wide', !!o.wide); // fenêtre large sur ordinateur et tablette (formulaires, listes en colonnes)
+    el.onclick = null;                      // les actions de la fenêtre précédente ne survivent pas
     dlgClose[lvl] = o.onClose || null;
     dlgGuard[lvl] = o.guard || null;
     el.classList.add('open');
@@ -175,9 +210,9 @@
     if (!lvl) dlgClose.point = $('pointSheet').classList.contains('open') || (dlgClose.point && $('dlg').classList.contains('open'));
     $('pointSheet').classList.remove('open');
     if (!U.isDesktop()) C.closePanel();
-    return { el: el, body: body, foot: foot, q: function (sel) { return el.querySelector(sel); }, qa: function (sel) { return el.querySelectorAll(sel); } };
+    return { el: el, body: body, foot: foot, q: function (sel) { return el.querySelector(sel); }, qa: function (sel) { return el.querySelectorAll(sel); }, on: function (handlers) { U.onAct(el, handlers); } };
   };
-  C.closeDlg = function (level) {
+  C.closeDialog = function (level) {
     var lvl = level === 2 ? '2' : '';
     var el = $('dlg' + lvl); if (!el.classList.contains('open')) return;
     el.classList.remove('open');
@@ -192,43 +227,43 @@
     var lvl = level === 2 ? '2' : '';
     var g = dlgGuard[lvl];
     if (g && g()) {
-      return C.confirmDlg('Des informations ont été saisies et ne sont pas enregistrées. Les abandonner ?', 'Abandonner', true).then(function (y) { if (y) { dlgGuard[lvl] = null; C.closeDlg(level); } });
+      return C.confirmDialog('Des informations saisies ne sont pas enregistrées.', 'Quitter sans enregistrer', true, 'Continuer la saisie').then(function (y) { if (y) { dlgGuard[lvl] = null; C.closeDialog(level); } });
     }
-    C.closeDlg(level); return Promise.resolve();
+    C.closeDialog(level); return Promise.resolve();
   };
   document.querySelector('[data-close]').addEventListener('click', function () { C.requestClose(1); });
   document.querySelector('[data-close2]').addEventListener('click', function () { C.requestClose(2); });
   $('scrim').addEventListener('click', function () { if ($('dlg2').classList.contains('open')) C.requestClose(2); else C.requestClose(1); });
-  C.confirmDlg = function (msg, okLabel, danger) {
+  C.confirmDialog = function (msg, okLabel, danger, cancelLabel) {
     return new Promise(function (ok) {
       var done = false;
-      var d = C.openDlg({ level: 2, title: 'Confirmer', body: '<p>' + U.esc(msg) + '</p>',
-        foot: '<button class="btn" id="cfNo">Annuler</button><button class="btn ' + (danger ? 'danger' : 'primary') + ' push" id="cfYes">' + U.esc(okLabel || 'OK') + '</button>',
+      var d = C.openDialog({ level: 2, title: 'Confirmer', body: '<p>' + U.esc(msg) + '</p>',
+        foot: '<button class="btn" id="cfNo">' + U.esc(cancelLabel || 'Annuler') + '</button><button class="btn ' + (danger ? 'danger' : 'primary') + ' push" id="cfYes">' + U.esc(okLabel || 'Confirmer') + '</button>',
         onClose: function () { if (!done) ok(false); } });
-      d.q('#cfNo').onclick = function () { done = true; C.closeDlg(2); ok(false); };
-      d.q('#cfYes').onclick = function () { done = true; C.closeDlg(2); ok(true); };
+      d.q('#cfNo').onclick = function () { done = true; C.closeDialog(2); ok(false); };
+      d.q('#cfYes').onclick = function () { done = true; C.closeDialog(2); ok(true); };
     });
   };
-  C.promptDlg = function (title, label, value, okLabel) {
+  C.promptDialog = function (title, label, value, okLabel) {
     return new Promise(function (ok) {
       var done = false;
-      var d = C.openDlg({ level: 2, title: title, body: '<label class="field"><span>' + U.esc(label) + '</span><input type="text" id="pmV" value="' + U.esc(value || '') + '"></label>',
-        foot: '<button class="btn" id="pmNo">Annuler</button><button class="btn primary push" id="pmOk">' + U.esc(okLabel || 'OK') + '</button>',
+      var d = C.openDialog({ level: 2, title: title, body: '<label class="field"><span>' + U.esc(label) + '</span><input type="text" id="pmV" value="' + U.esc(value || '') + '"></label>',
+        foot: '<button class="btn" id="pmNo">Annuler</button><button class="btn primary push" id="pmOk">' + U.esc(okLabel || 'Enregistrer') + '</button>',
         onClose: function () { if (!done) ok(null); } });
       var inp = d.q('#pmV'); setTimeout(function () { inp.focus(); inp.select(); }, 250);
-      function go() { done = true; var v = inp.value.trim(); C.closeDlg(2); ok(v || null); }
+      function go() { done = true; var v = inp.value.trim(); C.closeDialog(2); ok(v || null); }
       inp.onkeydown = function (e) { if (e.key === 'Enter') go(); };
-      d.q('#pmNo').onclick = function () { done = true; C.closeDlg(2); ok(null); };
+      d.q('#pmNo').onclick = function () { done = true; C.closeDialog(2); ok(null); };
       d.q('#pmOk').onclick = go;
     });
   };
-  C.choiceDlg = function (title, choices) { // choices : [{v, label, hint}]
+  C.choiceDialog = function (title, choices) { // choices : [{v, label, hint, ico}]
     return new Promise(function (ok) {
       var done = false;
-      var d = C.openDlg({ level: 2, title: title, body: choices.map(function (c, i) {
-        return '<button class="list-item" data-i="' + i + '"><span class="grow"><span class="t">' + U.esc(c.label) + '</span>' + (c.hint ? '<span class="s">' + U.esc(c.hint) + '</span>' : '') + '</span><span class="caret">›</span></button>';
+      var d = C.openDialog({ level: 2, title: title, body: choices.map(function (c, i) {
+        return '<button class="list-item" data-i="' + i + '">' + (c.ico ? '<span class="item-ico">' + c.ico + '</span>' : '') + '<span class="grow"><span class="item-title">' + U.esc(c.label) + '</span>' + (c.hint ? '<span class="item-sub">' + U.esc(c.hint) + '</span>' : '') + '</span><span class="caret">›</span></button>';
       }).join(''), onClose: function () { if (!done) ok(null); } });
-      d.qa('[data-i]').forEach(function (b) { b.onclick = function () { done = true; C.closeDlg(2); ok(choices[+b.getAttribute('data-i')].v); }; });
+      d.qa('[data-i]').forEach(function (b) { b.onclick = function () { done = true; C.closeDialog(2); ok(choices[+b.getAttribute('data-i')].v); }; });
     });
   };
 
@@ -272,13 +307,18 @@
   })();
 
   /* ======================= Panneau et onglets ======================= */
+  // Quatre onglets, une intention chacun : calques (voir), terrain (relever), chantier (préparer), export (livrer).
+  var TABS = ['calques', 'terrain', 'chantier', 'export'];
   C.tabs = {};
   var curTab = null;
+  function tabEl(tab) { return $('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)); }
+  C.tabEl = tabEl;
   C.openPanel = function (tab) {
-    curTab = tab || curTab || 'carte';
-    document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('on', t.id === 'tab-' + curTab); });
-    document.querySelectorAll('#nav button, #ptabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === curTab && ($('panel').classList.contains('open') || U.isDesktop() || true)); });
-    if (C.tabs[curTab]) C.tabs[curTab]($('tab-' + curTab));
+    curTab = tab || curTab || 'calques';
+    if (TABS.indexOf(curTab) < 0) curTab = { carte: 'calques', outils: 'terrain' }[curTab] || 'calques'; // onglets d'avant la v2.5
+    TABS.forEach(function (t) { tabEl(t).classList.toggle('on', t === curTab); });
+    document.querySelectorAll('#nav button, #ptabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === curTab); });
+    if (C.tabs[curTab]) C.tabs[curTab](tabEl(curTab));
     $('panel').classList.add('open');
     U.store('tab', curTab);
   };
@@ -287,7 +327,11 @@
     $('panel').classList.remove('open');
     document.querySelectorAll('#nav button').forEach(function (b) { b.classList.remove('on'); });
   };
-  C.refreshTab = function (tab) { if (curTab === tab && ($('panel').classList.contains('open') || U.isDesktop()) && C.tabs[tab]) C.tabs[tab]($('tab-' + tab)); };
+  // redessine l'onglet affiché s'il fait partie de ceux cités : C.refreshTab('terrain', 'chantier')
+  C.refreshTab = function () {
+    if (!curTab || !C.tabs[curTab] || !($('panel').classList.contains('open') || U.isDesktop())) return;
+    if (Array.prototype.indexOf.call(arguments, curTab) >= 0) C.tabs[curTab](tabEl(curTab));
+  };
   document.querySelectorAll('#nav button, #ptabs button').forEach(function (b) {
     b.addEventListener('click', function () {
       var t = b.getAttribute('data-tab');

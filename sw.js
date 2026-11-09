@@ -1,11 +1,11 @@
 /* Service worker « Carto chantiers » : démarrage instantané, appli disponible sans réseau, tuiles préparées. */
-var VERSION = 'v2.4.0';
+var VERSION = 'v2.5.0';
 var SHELL = 'carto-shell-' + VERSION;
 var SHELL_FILES = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
   './vendor/leaflet.js', './vendor/leaflet.css', './vendor/jszip.min.js', './vendor/jspdf.umd.min.js', './vendor/xlsx.full.min.js',
   './js/layers.js', './js/parse.js', './js/geo.js', './js/fiche.js', './js/formats.js', './js/offline.js',
-  './js/core.js', './js/geology.js', './data/litho1m.json', './data/geol50.json', './js/docs.js', './js/fiches.js', './js/tools.js', './js/export.js', './js/pdf.js', './js/search.js', './js/main.js',
+  './js/core.js', './js/geology.js', './data/litho1m.json', './data/geol50.json', './js/docs.js', './js/fiches.js', './js/calques.js', './js/tools.js', './js/chantier.js', './js/export.js', './js/pdf.js', './js/search.js', './js/main.js',
   './icons/icon-192.png', './icons/icon-512.png'
 ];
 var DATA_HOSTS = ['data.geopf.fr', 'geobretagne.fr', 'www.georisques.gouv.fr', 'odre.opendatasoft.com', 'server.arcgisonline.com'];

@@ -1,4 +1,4 @@
-/* Recherche d'un lieu : adresse, commune, lieu-dit (IGN Géoplateforme), coordonnées GPS ou Lambert 93. */
+/* Carto chantiers — recherche d'un lieu : adresse, commune, lieu-dit (IGN Géoplateforme), coordonnées GPS ou Lambert 93. */
 (function () {
   var C = window.Carto, U = C.u, map = C.map, $ = function (id) { return document.getElementById(id); }, esc = U.esc;
   var AERIAL = { ortho: 1, esri: 1, irc: 1, histo: 1 };
@@ -41,30 +41,30 @@
 
   function go(r) {
     remember(r);
-    C.closeDlg(1);
-    if (!AERIAL[C.curBase]) { C.setBase('ortho'); C.refreshTab('carte'); }
+    C.closeDialog(1);
+    if (!AERIAL[C.curBase]) { C.setBase('ortho'); C.refreshTab('calques'); }
     var ll = L.latLng(r.lat, r.lon);
     map.setView(ll, zoomFor(r));
     setTimeout(function () { C.showTarget(ll, r.text); }, 280);
   }
 
-  C.openSearch = function () {
-    var d = C.openDlg({ title: 'Rechercher un lieu', top: true, body:
+  C.searchDialog = function () {
+    var d = C.openDialog({ title: 'Rechercher un lieu', top: true, body:
       '<div class="srch"><input type="search" id="srQ" placeholder="Adresse, lieu ou coordonnées" autocomplete="off" enterkeyhint="search"></div>' +
-      '<p class="muted small" style="margin:6px 2px 10px">Exemples : <i>45 route de Sangué Prémery</i> · <i>44.9127, -0.5302</i> · <i>419373 6433824</i> (Lambert 93)</p>' +
+      '<p class="muted small srch-hint">Exemples : <i>45 route de Sangué Prémery</i> · <i>44.9127, -0.5302</i> · <i>419373 6433824</i> (Lambert 93)</p>' +
       '<div id="srList"></div>' });
     var q = d.q('#srQ'), list = d.q('#srList'), results = [], seq = 0;
     function draw(items, empty) {
       results = items;
       list.innerHTML = items.length ? items.map(function (r, i) {
-        return '<button class="list-item" data-i="' + i + '"><span class="ic">' + (r.icon || '📍') + '</span><span class="grow"><b>' + esc(r.text) + '</b>' + (r.sub ? '<span class="muted small" style="display:block">' + esc(r.sub) + '</span>' : '') + '</span></button>';
+        return '<button class="list-item" data-i="' + i + '"><span class="item-ico">' + (r.icon || '📍') + '</span><span class="grow"><span class="item-title">' + esc(r.text) + '</span>' + (r.sub ? '<span class="item-sub">' + esc(r.sub) + '</span>' : '') + '</span></button>';
       }).join('') : (empty ? '<p class="muted">' + empty + '</p>' : '');
       list.querySelectorAll('[data-i]').forEach(function (b) { b.onclick = function () { go(results[+b.getAttribute('data-i')]); }; });
     }
     function showRecent() {
       var r = recent();
       draw(r.map(function (x) { return { text: x.text, sub: x.sub || 'Recherche récente', lat: x.lat, lon: x.lon, kind: x.kind, coords: x.coords, icon: '🕘' }; }), '');
-      if (r.length) list.insertAdjacentHTML('afterbegin', '<div class="muted small" style="margin:0 2px 4px;font-weight:700">Récemment</div>');
+      if (r.length) list.insertAdjacentHTML('afterbegin', '<div class="card-sub">Recherches récentes</div>');
     }
     var run = U.debounce(function () {
       var text = q.value.trim(), my = ++seq;
@@ -92,11 +92,11 @@
     setTimeout(function () { q.focus(); }, 120);
   };
 
-  $('btnSearch').addEventListener('click', C.openSearch);
+  $('btnSearch').addEventListener('click', C.searchDialog);
   // raccourci clavier à l'ordinateur : « / » ou Ctrl+F ouvre la recherche
   document.addEventListener('keydown', function (e) {
     if (/INPUT|TEXTAREA|SELECT/.test((e.target && e.target.tagName) || '')) return;
-    if (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f')) { e.preventDefault(); C.openSearch(); }
+    if (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f')) { e.preventDefault(); C.searchDialog(); }
   });
   C.parseCoords = parseCoords;
 })();

@@ -14,68 +14,70 @@
 <body>
 <div id="map"></div>
 
-<!-- Haut : chantier + pylône -->
+<!-- Haut : chantier, recherche, pylône -->
 <div class="top">
-  <button class="chip" id="btnFiles"><span class="ic">🗂</span><span class="txt"><span class="lbl">Chantier</span><span class="val" id="filesVal">Ouvrir un fichier…</span></span><span class="caret">▾</span></button>
-  <button class="chip srch-btn" id="btnSearch" title="Rechercher une adresse ou des coordonnées" aria-label="Rechercher une adresse"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg></button>
-  <button class="chip pyl" id="btnPyl"><span class="txt"><span class="lbl" id="pylLbl">Pylône</span><span class="val" id="pylName">—</span></span><span class="caret">▾</span></button>
+  <button class="chip" id="btnChantier" title="Ouvrir, créer ou fermer un chantier"><span class="chip-ico">🗂</span><span class="chip-text"><span class="chip-label">Chantier</span><span class="chip-value" id="chantierName">Ouvrir…</span></span><span class="caret">▾</span></button>
+  <button class="chip chip-search" id="btnSearch" title="Rechercher une adresse ou des coordonnées" aria-label="Rechercher une adresse"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg></button>
+  <button class="chip chip-pyl" id="btnPyl" title="Aller à un pylône"><span class="chip-text"><span class="chip-label" id="pylLbl">Pylône</span><span class="chip-value" id="pylName">—</span></span><span class="caret">▾</span></button>
 </div>
 <div class="badges"><span id="offBadge" class="badge warn" hidden>Hors réseau</span><button id="syncBadge" class="badge" hidden></button></div>
 
 <div class="fabs">
-  <button class="fab" id="btnFit" title="Recentrer sur le chantier" aria-label="Recentrer"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  <button class="fab" id="btnFit" title="Recentrer sur le chantier" aria-label="Recentrer sur le chantier"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   <button class="fab" id="btnLocate" title="Ma position" aria-label="Ma position"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
 </div>
 
-<!-- Barres d'action (mesure, tracé) -->
+<!-- Barres d'action sur la carte (mesure, tracé) -->
 <div class="bar" id="measureBar" hidden>
-  <div class="bar-top"><div><div class="muted" id="msHint">Touche la carte ou un pylône pour poser des points</div><div class="big" id="msValue">0 m</div></div></div>
-  <div class="row2">
-    <button class="btn" id="msUndo">↶ Annuler</button>
+  <div class="muted" id="msHint">Touche la carte ou un pylône pour poser des points</div>
+  <div class="bar-value" id="msValue">0 m</div>
+  <div class="row">
+    <button class="btn" id="msUndo">↶ Dernier point</button>
     <button class="btn" id="msArea">Surface : non</button>
     <button class="btn" id="msProfile">⛰ Profil</button>
-    <button class="btn" id="msKeep">💾 Garder</button>
-    <button class="btn" id="msClear">Effacer</button>
-    <button class="btn primary push" id="msClose">Terminer</button>
+    <button class="btn" id="msKeep">💾 Enregistrer</button>
+    <button class="btn" id="msClear">Tout effacer</button>
+    <button class="btn primary push" id="msClose">Fermer</button>
   </div>
 </div>
 <div class="bar" id="drawBar" hidden>
-  <div class="bar-top"><div><div class="muted" id="drHint">Touche la carte</div><div class="big" id="drTitle">Ajout</div></div></div>
-  <div class="row2">
-    <button class="btn" id="drUndo">↶ Annuler le point</button>
-    <button class="btn danger" id="drCancel">Abandonner</button>
-    <button class="btn primary push" id="drDone">Valider</button>
+  <div class="muted" id="drHint">Touche la carte</div>
+  <div class="bar-value" id="drTitle">Ajout</div>
+  <div class="row">
+    <button class="btn" id="drUndo">↶ Dernier point</button>
+    <button class="btn" id="drCancel">Annuler</button>
+    <button class="btn primary push" id="drDone">Terminer</button>
   </div>
 </div>
 
-<!-- Panneau principal (bas sur téléphone, gauche sur ordinateur) -->
+<!-- Panneau principal (bas sur téléphone, gauche sur ordinateur) : un onglet = une intention -->
 <aside id="panel" aria-label="Panneau">
   <div class="grab" id="panelGrab"></div>
   <nav class="ptabs" id="ptabs">
-    <button data-tab="carte">Carte</button><button data-tab="calques">Calques</button><button data-tab="outils">Outils</button><button data-tab="export">Export</button>
+    <button data-tab="calques">Calques</button><button data-tab="terrain">Terrain</button><button data-tab="chantier">Chantier</button><button data-tab="export">Export</button>
   </nav>
   <div class="pbody">
-    <section class="tab" id="tab-carte"></section>
-    <section class="tab" id="tab-calques"></section>
-    <section class="tab" id="tab-outils"></section>
-    <section class="tab" id="tab-export"></section>
+    <section class="tab" id="tabCalques"></section>
+    <section class="tab" id="tabTerrain"></section>
+    <section class="tab" id="tabChantier"></section>
+    <section class="tab" id="tabExport"></section>
   </div>
 </aside>
 
-<!-- Barre du bas (téléphone) -->
+<!-- Barre du bas (téléphone et tablette) -->
 <nav id="nav">
-  <button data-tab="carte"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg><span>Carte</span></button>
   <button data-tab="calques"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg><span>Calques</span><i class="dot" id="layerCount" hidden></i></button>
-  <button data-tab="outils"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></svg><span>Outils</span></button>
+  <button data-tab="terrain"><svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg><span>Terrain</span></button>
+  <button data-tab="chantier"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Chantier</span></button>
   <button data-tab="export"><svg viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 15v5h16v-5"/></svg><span>Export</span></button>
 </nav>
 
 <div class="scrim" id="scrim"></div>
 
 <!-- Fenêtres (feuilles du bas sur téléphone, tiroir à droite sur ordinateur) -->
-<section class="sheet" id="dlg"><div class="grab"></div><header><h2 id="dlgTitle">—</h2><span id="dlgHead"></span><button class="x" data-close aria-label="Fermer">×</button></header><div class="body" id="dlgBody"></div><footer id="dlgFoot"></footer></section>
-<section class="sheet" id="dlg2"><div class="grab"></div><header><h2 id="dlg2Title">—</h2><button class="x" data-close2 aria-label="Fermer">×</button></header><div class="body" id="dlg2Body"></div><footer id="dlg2Foot"></footer></section>
-<section class="sheet compact" id="pointSheet"><div class="grab"></div><header><h2 id="ptTitle">Point</h2><button class="x" id="ptClose" aria-label="Fermer">×</button></header><div class="body" id="ptBody"></div></section>
+<section class="sheet" id="dlg"><div class="grab"></div><header><h2 id="dlgTitle">—</h2><span id="dlgHead"></span><button class="sheet-close" data-close aria-label="Fermer">×</button></header><div class="body" id="dlgBody"></div><footer id="dlgFoot"></footer></section>
+<section class="sheet" id="dlg2"><div class="grab"></div><header><h2 id="dlg2Title">—</h2><button class="sheet-close" data-close2 aria-label="Fermer">×</button></header><div class="body" id="dlg2Body"></div><footer id="dlg2Foot"></footer></section>
+<section class="sheet compact" id="pointSheet"><div class="grab"></div><header><h2 id="ptTitle">Point</h2><button class="sheet-close" id="ptClose" aria-label="Fermer">×</button></header><div class="body" id="ptBody"></div></section>
 
 <div id="busy"><div><div class="spin"></div><div id="busyTxt">Chargement…</div></div></div>
 <div id="toast"></div>
@@ -92,7 +94,9 @@
 <script src="js/geology.js"></script>
 <script src="js/docs.js"></script>
 <script src="js/fiches.js"></script>
+<script src="js/calques.js"></script>
 <script src="js/tools.js"></script>
+<script src="js/chantier.js"></script>
 <script src="js/export.js"></script>
 <script src="js/pdf.js"></script>
 <script src="js/search.js"></script>

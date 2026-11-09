@@ -1,7 +1,7 @@
-/* Carto chantiers — fichiers ouverts, dossiers, pylônes, sélection, modification, ajouts terrain, synchronisation. */
+/* Carto chantiers — chantiers ouverts : fenêtre « Chantiers », dossiers affichés, navigateur Drive, pylônes, fiche du point, enregistrement, synchronisation. */
 (function () {
   'use strict';
-  var C = window.Carto, U = C.u, $ = C.$, map = C.map, esc = U.esc;
+  var C = window.Carto, U = C.u, $ = C.$, map = C.map, esc = U.esc, ui = C.ui;
 
   C.docs = [];
   var fileLayers = L.layerGroup().addTo(map);
@@ -40,7 +40,7 @@
     var u = U.store('activeDoc');
     return C.docs.filter(function (d) { return d.uid === u && d.role === 'chantier'; })[0] || C.docs.filter(function (d) { return d.role === 'chantier'; })[0] || null;
   };
-  C.setActiveDoc = function (doc) { if (doc) U.store('activeDoc', doc.uid); updateChip(); C.refreshTab('outils'); C.refreshTab('export'); };
+  C.setActiveDoc = function (doc) { if (doc) U.store('activeDoc', doc.uid); updateChip(); C.refreshTab('terrain', 'chantier', 'export'); };
   C.terrainOf = function (chantier, create) {
     if (!chantier) return null;
     var t = C.docs.filter(function (d) { return d.role === 'terrain' && d.terrainOf === C.docKey(chantier); })[0];
@@ -79,10 +79,10 @@
     refreshTabsSoon();
     return doc;
   }
-  var refreshTabsSoon = U.debounce(function () { C.refreshTab('outils'); C.refreshTab('export'); }, 150);
+  var refreshTabsSoon = U.debounce(function () { C.refreshTab('terrain', 'chantier', 'export'); }, 150);
   C.openDriveFile = function (id, opts) {
     opts = opts || {};
-    if (!opts.quiet) U.busy(true, 'Ouverture du fichier…');
+    if (!opts.quiet) U.busy(true, 'Ouverture du chantier…');
     var fromCache = null;
     return C.callPorte('fichier', { id: id }).then(function (j) {
       C.saveData('fichier-' + id, j.fichier); return j.fichier;
@@ -100,7 +100,7 @@
       U.busy(false);
       if (fromCache && !opts.quiet) U.toast('Pas de réseau : copie du ' + U.fmtDate(fromCache, true), 4000);
       if (doc.role === 'chantier') {
-        if (!opts.quiet) { fit(doc); askFolders(doc, true); }
+        if (!opts.quiet) { fit(doc); foldersDialog(doc, true); }
         findTerrain(doc);
         if (C.fiches) C.fiches.load(doc);
       }
@@ -143,7 +143,7 @@
     return C.formats.readMapFile(file).then(function (r) {
       var doc = newDoc({ name: r.name, source: 'local', role: 'chantier', images: r.images, feats: C.parsePayload(r), parent: null });
       addDoc(doc); persistLocal(doc); U.busy(false);
-      if (!many) { fit(doc); askFolders(doc, true); }
+      if (!many) { fit(doc); foldersDialog(doc, true); }
       if (C.fiches) C.fiches.load(doc);
       return doc;
     }).catch(function (e) { U.busy(false); U.toast('Lecture impossible de « ' + file.name + ' » : ' + (e.message || e), 5000); });
@@ -155,7 +155,7 @@
     files.forEach(function (f) { chain = chain.then(function () { return openOneLocal(f, files.length > 1).then(function (d) { if (d) last = d; }); }); });
     return chain.then(function () {
       if (files.length > 1) fit(null);
-      if (last) U.toast(files.length > 1 ? files.length + ' fichiers ouverts depuis l\'appareil' : 'Fichier de l\'appareil : enregistre une version pour le mettre sur le Drive', 4500);
+      if (last) U.toast(files.length > 1 ? files.length + ' chantiers ouverts depuis l\'appareil' : 'Chantier ouvert depuis l\'appareil : enregistre une version pour le mettre sur le Drive (onglet Chantier)', 5000);
     });
   };
   C.openLocalFile = function () {
@@ -177,17 +177,17 @@
       var maps = files.filter(function (f) { return /\.(kmz|kml|gpx|geojson|json)$/i.test(f.name); });
       var tables = files.filter(function (f) { return /\.(csv|txt|xlsx|xls|ods)$/i.test(f.name); });
       if (!maps.length && !tables.length) { U.toast('Format non reconnu : KMZ, KML, GPX, GeoJSON, CSV ou Excel'); return; }
-      C.closeDlg(2); C.closeDlg(1);
+      C.closeDialog(2); C.closeDialog(1);
       C.openLocalFiles(maps).then(function () { if (tables.length && C.fiches) C.fiches.importFile(tables[0], {}); });
     });
   })();
   C.newChantier = function () {
-    return C.promptDlg('Nouveau chantier', 'Nom du chantier', '', 'Créer').then(function (n) {
+    return C.promptDialog('Nouveau chantier', 'Nom du chantier', '', 'Créer').then(function (n) {
       if (!n) return;
       var doc = newDoc({ name: n + '.kmz', source: 'new', role: 'chantier', parent: { id: 'root', name: 'Mon Drive' }, feats: [], editing: true, dirty: true });
-      addDoc(doc); persistLocal(doc); C.closeDlg(1);
-      U.toast('Chantier créé : place les pylônes depuis Outils → Modifier', 4500);
-      C.openPanel('outils');
+      addDoc(doc); persistLocal(doc); C.closeDialog(1);
+      U.toast('Chantier créé : ajoute ses pylônes depuis l\'onglet Chantier', 4500);
+      C.openPanel('chantier');
     });
   };
   function closeDoc(doc, silent) {
@@ -257,7 +257,7 @@
       } else {
         var ic = iconFor(doc, s.icon);
         m = ic ? L.marker(f.coords, { icon: ic, draggable: doc.editing })
-               : (doc.editing ? L.marker(f.coords, { draggable: true, icon: L.divIcon({ className: 'pyl-ico edit', html: '<div style="background:#ffb300;min-width:14px;height:14px;padding:0"></div>', iconSize: [0, 0] }) })
+               : (doc.editing ? L.marker(f.coords, { draggable: true, icon: L.divIcon({ className: 'pyl-ico edit pt', html: '<div></div>', iconSize: [0, 0] }) })
                   : L.circleMarker(f.coords, { renderer: vecR, radius: 6, color: '#fff', weight: 2, fillColor: s.iconColor || '#ffb300', fillOpacity: 1, bubblingMouseEvents: false }));
         if (f.name) m.bindTooltip(esc(f.name), { permanent: true, direction: 'right', offset: [8, 0], className: 'pt-lbl' });
       }
@@ -280,13 +280,13 @@
   function markDirty(doc) {
     doc.dirty = true; C.persistDoc(doc);
     if (doc.role === 'terrain') C.sync.add({ t: 'terrain', key: doc.terrainOf });
-    C.refreshTab('outils');
+    C.refreshTab('terrain', 'chantier');
   }
   C.markDirty = markDirty;
 
   function updateChip() {
     var a = C.activeDoc(), n = C.docs.filter(function (d) { return d.role !== 'terrain'; }).length;
-    $('filesVal').textContent = a ? U.baseName(a.name) + (n > 1 ? '  (+' + (n - 1) + ')' : '') + (a.editing ? ' ✎' : '') : (n ? n + ' fichier(s)' : 'Ouvrir un fichier…');
+    $('chantierName').textContent = a ? U.baseName(a.name) + (n > 1 ? '  (+' + (n - 1) + ')' : '') + (a.editing ? ' ✎' : '') : (n ? n + ' chantier(s)' : 'Ouvrir…');
     var hasPyl = C.allPylons().length > 0;
     $('pylLbl').textContent = hasPyl ? 'Pylône' : 'Point';
   }
@@ -305,118 +305,120 @@
     if (b.isValid()) map.fitBounds(b, { padding: [50, 50], maxZoom: 17 });
   }
   C.fitDocs = fit;
-  $('btnFit').addEventListener('click', function () { var a = C.activeDoc(); if (C.docs.length) fit(a || null); else U.toast('Ouvre d\'abord un fichier'); });
+  $('btnFit').addEventListener('click', function () { var a = C.activeDoc(); if (C.docs.length) fit(a || null); else U.toast('Ouvre d\'abord un chantier'); });
 
-  /* ======================= Dossiers à afficher ======================= */
-  function askFolders(doc, firstTime) {
+  /* ======================= Dossiers affichés ======================= */
+  function foldersDialog(doc, firstTime) {
     var keys = {}, order = [];
     doc.feats.forEach(function (f) { var k = folderKey(f); if (!keys[k]) { keys[k] = 0; order.push(k); } keys[k]++; });
     if (firstTime && (order.length < 2 || (U.storeJSON('folderPrefs') || {})[C.docKey(doc)])) return;
-    var html = '<p class="muted">Coche les dossiers à afficher. Ton choix est retenu pour ce fichier.</p><div class="row2" style="margin-bottom:6px"><button class="btn ghost" id="fdAll">Tout</button><button class="btn ghost" id="fdNone">Rien</button></div>' +
+    var html = '<p class="muted">Coche les dossiers à afficher sur la carte. Ton choix est retenu pour ce chantier.</p><div class="row"><button class="btn ghost" id="fdAll">Tout cocher</button><button class="btn ghost" id="fdNone">Tout décocher</button></div>' +
       order.map(function (k, i) {
         var depth = k === '(racine)' ? 0 : k.split(' › ').length - 1;
-        return '<label class="check indent' + Math.min(depth, 3) + '"><input type="checkbox" data-k="' + i + '"' + (doc.hidden[k] ? '' : ' checked') + '><span class="grow">' + esc(k.split(' › ').pop()) + '<span class="hint">' + keys[k] + ' élément(s)</span></span></label>';
+        return '<label class="check indent' + Math.min(depth, 3) + '"><input type="checkbox" data-folder="' + i + '"' + (doc.hidden[k] ? '' : ' checked') + '><span class="grow">' + esc(k.split(' › ').pop()) + '<span class="hint">' + keys[k] + ' élément(s)</span></span></label>';
       }).join('');
-    var d = C.openDlg({ title: 'Dossiers de « ' + U.baseName(doc.name) + ' »', body: html, foot: '<button class="btn primary big" id="fdOk">Afficher</button>' });
-    d.q('#fdAll').onclick = function () { d.qa('[data-k]').forEach(function (c) { c.checked = true; }); };
-    d.q('#fdNone').onclick = function () { d.qa('[data-k]').forEach(function (c) { c.checked = false; }); };
+    var d = C.openDialog({ title: 'Dossiers de « ' + U.baseName(doc.name) + ' »', body: html, foot: '<button class="btn primary big" id="fdOk">Afficher</button>' });
+    d.q('#fdAll').onclick = function () { d.qa('[data-folder]').forEach(function (c) { c.checked = true; }); };
+    d.q('#fdNone').onclick = function () { d.qa('[data-folder]').forEach(function (c) { c.checked = false; }); };
     d.q('#fdOk').onclick = function () {
       doc.hidden = {};
-      d.qa('[data-k]').forEach(function (c) { if (!c.checked) doc.hidden[order[+c.getAttribute('data-k')]] = true; });
+      d.qa('[data-folder]').forEach(function (c) { if (!c.checked) doc.hidden[order[+c.getAttribute('data-folder')]] = true; });
       var p = U.storeJSON('folderPrefs') || {}; p[C.docKey(doc)] = doc.hidden; U.storeJSON('folderPrefs', p);
-      render(doc); saveOpenList(); C.closeDlg(1);
+      render(doc); saveOpenList(); C.closeDialog(1);
     };
   }
-  C.askFolders = askFolders;
+  C.foldersDialog = foldersDialog;
 
-  /* ======================= Fenêtre « Fichiers » ======================= */
-  C.openFilesDlg = function () {
-    var d = C.openDlg({ title: 'Fichiers de chantier', body: '<div id="fOpen"></div><h3 class="sectitle">Ouvrir</h3><div class="tiles" id="fAdd"></div><h3 class="sectitle">Racine de ton Drive</h3><div id="fRoot"><div class="empty">Lecture du Drive…</div></div>' });
-    d.el.querySelectorAll('.sectitle').forEach(function (h) { h.style.cssText = 'font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#5d6b78;margin:16px 0 8px'; });
-    renderOpenList(d);
-    d.q('#fAdd').innerHTML = [
-      ['browse', '📁', 'Parcourir le Drive', 'Tous tes dossiers'],
-      ['local', '📱', 'Depuis l\'appareil', 'KMZ reçu par mail, WhatsApp…'],
-      ['new', '✚', 'Nouveau chantier', 'Fichier vierge à remplir'],
-      ['table', '📊', 'Depuis un tableau', 'Coordonnées CSV / Excel / Sheet']
-    ].map(function (t) { return '<button class="tile" data-a="' + t[0] + '"><span class="e">' + t[1] + '</span><b>' + t[2] + '</b><span>' + t[3] + '</span></button>'; }).join('');
-    d.qa('#fAdd [data-a]').forEach(function (b) {
-      b.onclick = function () {
-        var a = b.getAttribute('data-a');
-        if (a === 'browse') C.browseDrive({ mode: 'file' }).then(function (f) { if (f) { C.closeDlg(1); C.openDriveFile(f.id, { parent: f.parent }); } });
-        if (a === 'local') { C.closeDlg(1); C.openLocalFile(); }
-        if (a === 'new') C.newChantier();
-        if (a === 'table') { C.closeDlg(1); C.fiches.importWizard({ createDoc: true }); }
-      };
+  /* ======================= Fenêtre « Chantiers » : ouvrir, créer, afficher, fermer ======================= */
+  // Le seul endroit où l'on ouvre ou crée un chantier (bouton « Chantier » en haut, ou onglet Chantier → Changer).
+  C.chantiersDialog = function () {
+    var docs = [];
+    var d = C.openDialog({ title: 'Chantiers', body:
+      '<div id="chOpen"></div>' +
+      '<h3 class="sec-title">Ouvrir depuis Mon Drive</h3><div class="rows" id="chDrive"><div class="empty">Lecture du Drive…</div></div>' +
+      '<div class="rows">' + ui.item('browse', '📁', 'Parcourir les dossiers du Drive', 'Chantier rangé ailleurs qu\'à la racine') +
+      ui.item('local', '📱', 'Ouvrir depuis l\'appareil', 'KMZ reçu par mail, WhatsApp…') + '</div>' +
+      '<h3 class="sec-title">Créer</h3><div class="rows">' + ui.item('create', '✚', 'Nouveau chantier', 'Vierge : pylônes à ajouter sur la carte') +
+      ui.item('table', '📊', 'Chantier depuis un tableau', 'Coordonnées CSV, Excel ou Google Sheet') + '</div>' });
+    function drawOpen() {
+      var el = d.q('#chOpen'); if (!el) return;
+      docs = C.docs.slice();
+      if (!docs.length) { el.innerHTML = '<p class="muted">Aucun chantier ouvert. Tu peux en superposer plusieurs.</p>'; return; }
+      var act = C.activeDoc(), many = docs.filter(function (x) { return x.role === 'chantier'; }).length > 1;
+      el.innerHTML = '<h3 class="sec-title">Ouverts</h3><div class="rows">' + docs.map(function (doc, i) {
+        var role = doc.role === 'terrain' ? '<span class="tag terrain">terrain</span>' : (doc === act && many ? '<span class="tag ok">★ actif</span>' : '');
+        var src = doc.source === 'local' ? 'sur l\'appareil' : doc.source === 'new' ? 'pas encore sur le Drive' : (doc.parent && doc.parent.name ? doc.parent.name : 'Drive');
+        return '<div class="list-item"><button class="ico-btn' + (doc.visible ? ' on' : '') + '" data-act="toggle" data-i="' + i + '" title="Afficher ou masquer sur la carte" aria-label="Afficher ou masquer">👁</button>' +
+          '<span class="grow"><span class="item-title">' + esc(U.baseName(doc.name)) + ' ' + role + (doc.dirty && doc.role !== 'terrain' ? ' <span class="tag warn">modifié</span>' : '') + '</span><span class="item-sub">' + esc(src) + ' · ' + doc.feats.length + ' éléments</span></span>' +
+          '<button class="ico-btn" data-act="folders" data-i="' + i + '" title="Dossiers affichés" aria-label="Dossiers affichés">☰</button>' +
+          (doc.role === 'chantier' && doc !== act ? '<button class="ico-btn" data-act="activate" data-i="' + i + '" title="Rendre actif" aria-label="Rendre actif">★</button>' : '') +
+          '<button class="ico-btn" data-act="close" data-i="' + i + '" title="Fermer" aria-label="Fermer">×</button></div>';
+      }).join('') + '</div><p class="muted small sec-note">👁 afficher ou masquer · ☰ dossiers affichés' + (many ? ' · ★ rendre actif' : '') + ' · × fermer</p>';
+    }
+    function drawDrive(list, saved) {
+      var el = d.q('#chDrive'), reg = C.offlineRegistry(); if (!el) return;
+      if (!list.length) { el.innerHTML = '<div class="empty">Aucun fichier de cartographie à la racine de ton Drive.</div>'; return; }
+      el.innerHTML = (saved ? '<p class="muted">Pas de réseau : liste du ' + U.fmtDate(saved, true) + '.</p>' : '') + list.map(function (f) {
+        var open = C.docs.some(function (x) { return x.id === f.id; });
+        return '<button class="list-item" data-act="open" data-id="' + esc(f.id) + '"><span class="tag">' + esc(f.ext) + '</span><span class="grow"><span class="item-title">' + esc(U.baseName(f.name)) + '</span><span class="item-sub">modifié le ' + U.fmtDate(f.modified) + '</span></span>' +
+          (reg[f.id] ? '<span class="tag ok">hors ligne</span>' : '') + (open ? '<span class="tag grey">ouvert</span>' : '') + '</button>';
+      }).join('');
+    }
+    d.on({
+      toggle: function (i) { var doc = docs[+i]; doc.visible = !doc.visible; render(doc); saveOpenList(); drawOpen(); },
+      folders: function (i) { foldersDialog(docs[+i]); },
+      activate: function (i) { C.setActiveDoc(docs[+i]); drawOpen(); },
+      close: function (i) {
+        var doc = docs[+i];
+        var go = doc.dirty && doc.role !== 'terrain' ? C.confirmDialog('« ' + U.baseName(doc.name) + ' » a des modifications non enregistrées sur le Drive. Fermer quand même ? (elles restent gardées sur cet appareil)', 'Fermer') : Promise.resolve(true);
+        go.then(function (y) { if (y) { closeDoc(doc); drawOpen(); } });
+      },
+      open: function (id) { C.closeDialog(1); C.openDriveFile(id, { parent: { id: 'root', name: 'Mon Drive' } }); },
+      browse: function () { C.driveDialog({ mode: 'file' }).then(function (f) { if (f) { C.closeDialog(1); C.openDriveFile(f.id, { parent: f.parent }); } }); },
+      local: function () { C.closeDialog(1); C.openLocalFile(); },
+      create: function () { C.newChantier(); },
+      table: function () { C.closeDialog(1); C.fiches.importDialog({ createDoc: true }); }
     });
+    drawOpen();
     C.callPorte('liste').then(function (j) { C.saveData('liste', j.fichiers); return { list: j.fichiers }; })
       .catch(function (e) { return C.loadData('liste').then(function (c) { if (c) return { list: c.data, saved: c.savedAt }; throw e; }); })
-      .then(function (r) { renderRoot(d, r.list, r.saved); })
-      .catch(function (e) { d.q('#fRoot').innerHTML = '<div class="empty">' + (C.porteConfigured() ? 'Drive inaccessible : ' + esc(e.message || e) + (e.porte || /HTTP|erreur 4|page/.test(e.message || '') ? C.porteHelpHtml() : '') : 'Porte Drive pas encore réglée : onglet Carte → Réglages.<div class="row2" style="justify-content:center;margin-top:8px"><button class="btn primary" data-open-settings>Régler la porte</button></div>') + '</div>'; });
+      .then(function (r) { drawDrive(r.list, r.saved); })
+      .catch(function (e) {
+        var el = d.q('#chDrive'); if (!el) return;
+        el.innerHTML = '<div class="empty">' + (C.porteConfigured() ? 'Drive inaccessible : ' + esc(e.message || e) + (e.porte || /HTTP|erreur 4|page/.test(e.message || '') ? C.porteHelpHtml() : '')
+          : 'La porte Drive n\'est pas encore réglée.<div class="row row-center"><button class="btn primary" data-open-settings>Ouvrir les réglages</button></div>') + '</div>';
+      });
   };
-  function renderOpenList(d) {
-    var el = d.q('#fOpen');
-    var docs = C.docs;
-    if (!docs.length) { el.innerHTML = '<p class="muted">Aucun fichier ouvert. Tu peux en superposer plusieurs.</p>'; return; }
-    var act = C.activeDoc();
-    el.innerHTML = '<h3 class="sectitle" style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#5d6b78;margin:4px 0 4px">Ouverts</h3>' + docs.map(function (doc, i) {
-      var role = doc.role === 'terrain' ? '<span class="tag" style="background:#f3e5f5;color:#7b1fa2">terrain</span>' : (doc === act ? '<span class="tag ok">★ actif</span>' : '');
-      var src = doc.source === 'local' ? 'sur l\'appareil' : doc.source === 'new' ? 'nouveau, pas encore sur le Drive' : (doc.parent && doc.parent.name ? doc.parent.name : 'Drive');
-      return '<div class="list-item"><button class="ico-btn' + (doc.visible ? ' on' : '') + '" data-v="' + i + '" title="Afficher/masquer">👁</button>' +
-        '<span class="grow"><span class="t">' + esc(U.baseName(doc.name)) + ' ' + role + (doc.dirty && doc.role !== 'terrain' ? ' <span class="tag warn">modifié</span>' : '') + '</span><span class="s">' + esc(src) + ' · ' + doc.feats.length + ' éléments</span></span>' +
-        '<button class="ico-btn" data-f="' + i + '" title="Dossiers">☰</button>' +
-        (doc.role === 'chantier' && doc !== act ? '<button class="ico-btn" data-a="' + i + '" title="Rendre actif">★</button>' : '') +
-        '<button class="ico-btn" data-c="' + i + '" title="Fermer">×</button></div>';
-    }).join('');
-    el.querySelectorAll('[data-v]').forEach(function (b) { b.onclick = function () { var doc = docs[+b.getAttribute('data-v')]; doc.visible = !doc.visible; render(doc); saveOpenList(); renderOpenList(d); }; });
-    el.querySelectorAll('[data-f]').forEach(function (b) { b.onclick = function () { askFolders(docs[+b.getAttribute('data-f')]); }; });
-    el.querySelectorAll('[data-a]').forEach(function (b) { b.onclick = function () { C.setActiveDoc(docs[+b.getAttribute('data-a')]); renderOpenList(d); }; });
-    el.querySelectorAll('[data-c]').forEach(function (b) {
-      b.onclick = function () {
-        var doc = docs[+b.getAttribute('data-c')];
-        var go = doc.dirty && doc.role !== 'terrain' ? C.confirmDlg('« ' + U.baseName(doc.name) + ' » a des modifications non enregistrées sur le Drive. Fermer quand même ? (elles restent gardées sur cet appareil)', 'Fermer') : Promise.resolve(true);
-        go.then(function (y) { if (y) { closeDoc(doc); renderOpenList(d); } });
-      };
-    });
-  }
-  function renderRoot(d, list, saved) {
-    var el = d.q('#fRoot'), reg = C.offlineRegistry();
-    if (!list.length) { el.innerHTML = '<div class="empty">Aucun fichier de carto à la racine.</div>'; return; }
-    el.innerHTML = (saved ? '<p class="muted">Pas de réseau : liste du ' + U.fmtDate(saved, true) + '.</p>' : '') + list.map(function (f) {
-      var open = C.docs.some(function (x) { return x.id === f.id; });
-      return '<button class="list-item" data-id="' + esc(f.id) + '"><span class="tag">' + esc(f.ext) + '</span><span class="grow"><span class="t">' + esc(U.baseName(f.name)) + '</span><span class="s">modifié le ' + U.fmtDate(f.modified) + '</span></span>' +
-        (reg[f.id] ? '<span class="tag ok">hors ligne</span>' : '') + (open ? '<span class="tag grey">ouvert</span>' : '') + '</button>';
-    }).join('');
-    el.querySelectorAll('[data-id]').forEach(function (b) { b.onclick = function () { C.closeDlg(1); C.openDriveFile(b.getAttribute('data-id'), { parent: { id: 'root', name: 'Mon Drive' } }); }; });
-  }
-  $('btnFiles').addEventListener('click', C.openFilesDlg);
+  $('btnChantier').addEventListener('click', C.chantiersDialog);
 
   /* ======================= Navigateur Drive ======================= */
-  // mode 'file' : choisir un fichier de carto ; 'folder' : choisir un dossier ; 'table' : choisir un Google Sheet/CSV
-  C.browseDrive = function (opts) {
+  // mode 'file' : choisir un fichier de cartographie ; 'folder' : choisir un dossier ; 'table' : choisir un Google Sheet ou un CSV
+  C.driveDialog = function (opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
       var done = false, cur = { id: 'root', name: 'Mon Drive' };
-      var d = C.openDlg({ level: 2, title: opts.mode === 'folder' ? 'Choisir un dossier' : 'Choisir un fichier', body: '<div id="brPath" class="muted" style="margin-bottom:6px"></div><div id="brList"><div class="empty">Lecture…</div></div>',
-        foot: opts.mode === 'folder' ? '<button class="btn" id="brNew">+ Nouveau dossier</button><button class="btn primary push" id="brPick">Choisir ce dossier</button>' : '',
+      var d = C.openDialog({ level: 2, title: opts.mode === 'folder' ? 'Choisir un dossier du Drive' : opts.mode === 'table' ? 'Choisir un tableau du Drive' : 'Choisir un fichier du Drive', body: '<div id="brPath" class="muted crumbs"></div><div id="brList"><div class="empty">Lecture…</div></div>',
+        foot: opts.mode === 'folder' ? '<button class="btn" id="brNew">＋ Créer un dossier</button><button class="btn primary push" id="brPick">Choisir ce dossier</button>' : '',
         onClose: function () { if (!done) resolve(null); } });
       function load(id) {
         d.q('#brList').innerHTML = '<div class="empty">Lecture…</div>';
         var call = C.callPorte('dossier', opts.mode === 'table' ? { id: id, tableaux: '1' } : { id: id });
         call.then(function (j) {
           var c = j.contenu; cur = c.dossier;
-          d.q('#brPath').innerHTML = '<button class="btn ghost" data-go="root">Mon Drive</button>' + c.chemin.map(function (p) { return ' › <button class="btn ghost" data-go="' + esc(p.id) + '">' + esc(p.name) + '</button>'; }).join('');
-          var html = c.dossiers.map(function (f) { return '<button class="list-item" data-go="' + esc(f.id) + '"><span>📁</span><span class="grow"><span class="t">' + esc(f.name) + '</span></span><span class="caret">›</span></button>'; }).join('');
-          if (opts.mode === 'file' || opts.mode === 'table') html += c.fichiers.map(function (f) { return '<button class="list-item" data-file="' + esc(f.id) + '"><span class="tag">' + esc(f.ext) + '</span><span class="grow"><span class="t">' + esc(f.name) + '</span><span class="s">' + U.fmtDate(f.modified) + '</span></span></button>'; }).join('');
-          d.q('#brList').innerHTML = html || '<div class="empty">Dossier vide' + (opts.mode === 'file' ? ' (aucun fichier de carto)' : '') + '.</div>';
-          d.qa('[data-go]').forEach(function (b) { b.onclick = function () { load(b.getAttribute('data-go')); }; });
-          d.qa('[data-file]').forEach(function (b) { b.onclick = function () { done = true; C.closeDlg(2); resolve({ id: b.getAttribute('data-file'), parent: { id: cur.id, name: cur.name } }); }; });
+          d.q('#brPath').innerHTML = '<button class="btn ghost" data-act="go" data-id="root">Mon Drive</button>' + c.chemin.map(function (p) { return ' › <button class="btn ghost" data-act="go" data-id="' + esc(p.id) + '">' + esc(p.name) + '</button>'; }).join('');
+          var html = c.dossiers.map(function (f) { return '<button class="list-item" data-act="go" data-id="' + esc(f.id) + '"><span class="item-ico">📁</span><span class="grow"><span class="item-title">' + esc(f.name) + '</span></span><span class="caret">›</span></button>'; }).join('');
+          if (opts.mode === 'file' || opts.mode === 'table') html += c.fichiers.map(function (f) { return '<button class="list-item" data-act="pick" data-id="' + esc(f.id) + '"><span class="tag">' + esc(f.ext) + '</span><span class="grow"><span class="item-title">' + esc(f.name) + '</span><span class="item-sub">' + U.fmtDate(f.modified) + '</span></span></button>'; }).join('');
+          d.q('#brList').innerHTML = html || '<div class="empty">Dossier vide' + (opts.mode === 'file' ? ' (aucun fichier de cartographie)' : '') + '.</div>';
         }).catch(function (e) { d.q('#brList').innerHTML = '<div class="empty">' + esc(e.message || e) + '</div>'; });
       }
-      if (d.q('#brPick')) d.q('#brPick').onclick = function () { done = true; C.closeDlg(2); resolve({ id: cur.id, name: cur.name }); };
+      d.on({
+        go: function (id) { load(id); },
+        pick: function (id) { done = true; C.closeDialog(2); resolve({ id: id, parent: { id: cur.id, name: cur.name } }); }
+      });
+      if (d.q('#brPick')) d.q('#brPick').onclick = function () { done = true; C.closeDialog(2); resolve({ id: cur.id, name: cur.name }); };
       if (d.q('#brNew')) d.q('#brNew').onclick = function () {
-        C.closeDlg(2);
-        C.promptDlg('Nouveau dossier dans « ' + cur.name + ' »', 'Nom du dossier', '', 'Créer').then(function (nom) {
+        C.closeDialog(2);
+        C.promptDialog('Créer un dossier dans « ' + cur.name + ' »', 'Nom du dossier', '', 'Créer').then(function (nom) {
           if (!nom) { resolve(null); return; }
           C.postPorte('creerDossier', { parentId: cur.id, nom: nom }).then(function (j) { resolve({ id: j.dossier.id, name: j.dossier.name }); })
             .catch(function (e) { U.toast(e.message || String(e)); resolve(null); });
@@ -438,35 +440,36 @@
   C.pylonsOf = function (doc) {
     return doc.feats.filter(function (f) { return f.pylon; }).sort(function (a, b) { return U.natural(a.pylon, b.pylon); });
   };
-  $('btnPyl').addEventListener('click', function () {
+  // Sélecteur de pylône (ou de point quand le chantier n'a pas de pylônes)
+  C.pylonsDialog = function () {
     var all = C.allPylons();
     var pts = all.length ? all : [];
     if (!all.length) C.docs.forEach(function (doc) { if (doc.visible) doc.feats.forEach(function (f) { if (f.kind === 'point' && !doc.hidden[folderKey(f)]) pts.push({ doc: doc, f: f }); }); });
-    if (!pts.length) { U.toast('Aucun pylône ni point dans les fichiers affichés'); if (!C.docs.length) C.openFilesDlg(); return; }
+    if (!pts.length) { U.toast('Aucun pylône ni point dans les chantiers affichés'); if (!C.docs.length) C.chantiersDialog(); return; }
     var multi = C.docs.filter(function (d) { return d.visible && d.role !== 'terrain'; }).length > 1;
-    var d = C.openDlg({ title: all.length ? all.length + ' pylônes' : pts.length + ' points', body: '<input class="inp" id="pySearch" placeholder="N° ou nom…" autocomplete="off" style="margin-bottom:10px"><div id="pyList"></div>' });
+    var d = C.openDialog({ title: all.length ? all.length + ' pylônes' : pts.length + ' points', wide: true, body: '<input class="inp" id="pySearch" placeholder="N° ou nom…" autocomplete="off"><div id="pyList"></div>' });
     function draw() {
       var q = d.q('#pySearch').value.trim().toLowerCase();
       var list = pts.filter(function (p) { return !q || (p.f.pylon || '').toLowerCase().indexOf(q) === 0 || (p.f.name || '').toLowerCase().indexOf(q) >= 0; })
         .sort(function (a, b) { return U.natural(a.doc.name, b.doc.name) || U.natural(a.f.pylon || a.f.name, b.f.pylon || b.f.name); });
-      var html = '', lastDoc = null;
+      var html = '', lastDoc = null, box = '<div class="' + (all.length ? 'pyl-grid' : 'rows') + '">';
       list.forEach(function (p, i) {
-        if (multi && p.doc !== lastDoc) { html += (lastDoc ? '</div>' : '') + '<div class="muted" style="margin:10px 0 6px;font-weight:700">' + esc(U.baseName(p.doc.name)) + '</div><div class="' + (all.length ? 'grid' : '') + '" style="' + (all.length ? 'display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px' : '') + '">'; lastDoc = p.doc; }
-        else if (!multi && i === 0) html += '<div style="' + (all.length ? 'display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px' : '') + '">';
+        if (multi && p.doc !== lastDoc) { html += (lastDoc ? '</div>' : '') + '<div class="card-sub">' + esc(U.baseName(p.doc.name)) + '</div>' + box; lastDoc = p.doc; }
+        else if (!multi && i === 0) html += box;
         var st = C.fiches ? C.fiches.statusOf(p.doc, p.f.pylon) : '';
-        var bg = st === 'Validé' ? 'background:#e6f4ea;color:#1e8e3e' : st === 'Visité' ? 'background:#fff3e0;color:#b26a00' : '';
-        html += all.length ? '<button class="btn" style="padding:12px 4px;' + bg + '" data-i="' + pts.indexOf(p) + '">' + esc(p.f.pylon) + '</button>'
-          : '<button class="list-item" data-i="' + pts.indexOf(p) + '"><span class="grow"><span class="t">' + esc(p.f.name || '(sans nom)') + '</span></span></button>';
+        html += all.length ? '<button class="btn pyl-btn' + (st === 'Validé' ? ' done' : st === 'Visité' ? ' seen' : '') + '" data-i="' + pts.indexOf(p) + '">' + esc(p.f.pylon) + '</button>'
+          : '<button class="list-item" data-i="' + pts.indexOf(p) + '"><span class="grow"><span class="item-title">' + esc(p.f.name || '(sans nom)') + '</span></span></button>';
       });
       html += list.length ? '</div>' : '<div class="empty">Aucun résultat.</div>';
-      if (all.length) html += '<p class="muted small" style="margin-top:12px">Vert : fiche validée · orange : visité</p>';
+      if (all.length) html += '<p class="muted small sec-foot">Vert : fiche validée · orange : pylône visité</p>';
       d.q('#pyList').innerHTML = html;
-      d.qa('[data-i]').forEach(function (b) { b.onclick = function () { var p = pts[+b.getAttribute('data-i')]; C.closeDlg(1); select(p.doc, p.f, true); }; });
+      d.qa('[data-i]').forEach(function (b) { b.onclick = function () { var p = pts[+b.getAttribute('data-i')]; C.closeDialog(1); select(p.doc, p.f, true); }; });
     }
     d.q('#pySearch').oninput = draw; draw();
     d.q('#pySearch').onkeydown = function (e) { if (e.key === 'Enter') { var b = d.q('#pyList [data-i]'); if (b) b.click(); } };
     if (U.isDesktop()) setTimeout(function () { d.q('#pySearch').focus(); }, 200);
-  });
+  };
+  $('btnPyl').addEventListener('click', C.pylonsDialog);
 
   /* ======================= Sélection et fiche « point » ======================= */
   var selected = null, target = null;
@@ -493,7 +496,7 @@
     if (f.pylon && doc.role !== 'terrain') {
       var rest = (f.name || '').replace(PYL_PREFIX, '').replace(/^[\s\-–:]+/, '').trim();
       title = f.name === f.pylon ? 'Pylône ' + f.pylon : 'Pylône ' + f.pylon + (rest && rest !== f.name ? ' — ' + rest : '');
-    } else title = f.name || (f.kind === 'point' ? 'Point' : f.kind === 'line' ? 'Tracé' : 'Zone');
+    } else title = f.name || (f.kind === 'point' ? 'Point' : f.kind === 'line' ? 'Ligne' : 'Zone');
     showPoint(title, ll || centerOf(f), doc, f);
   }
   C.selectFeature = select;
@@ -508,34 +511,36 @@
   function showPoint(title, ll, doc, f) {
     var lat = ll[0], lon = ll[1], s = lat.toFixed(6) + ',' + lon.toFixed(6);
     var html = '<div class="coords">' + lat.toFixed(6) + ', ' + lon.toFixed(6) + (C.geo ? ' · L93 ' + C.geo.L93.fromWGS(lat, lon).map(function (v) { return Math.round(v); }).join(' / ') : '') + '</div>' +
-      '<div class="go"><a class="waze" target="_blank" rel="noopener" href="https://waze.com/ul?ll=' + encodeURIComponent(s) + '&navigate=yes">Waze</a>' +
-      '<a class="gmaps" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(s) + '&travelmode=driving">Google Maps</a></div><div class="row2" id="ptActs"></div><div id="ptInfos"></div><div id="ptMeta" style="margin-top:10px"></div>';
+      '<div class="route-links"><a class="waze" target="_blank" rel="noopener" href="https://waze.com/ul?ll=' + encodeURIComponent(s) + '&navigate=yes">Waze</a>' +
+      '<a class="gmaps" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(s) + '&travelmode=driving">Google Maps</a></div><div class="row" id="ptActs"></div><div id="ptInfos"></div><div id="ptMeta"></div>';
     $('ptTitle').textContent = title; $('ptBody').innerHTML = html;
     if (f && f.pylon && doc && doc.role !== 'terrain') {
       var list = C.pylonsOf(doc), i = list.indexOf(f), pv = list[i - 1], nx = list[i + 1];
       if (pv || nx) {
         var nav = document.createElement('div'); nav.className = 'pnav';
-        nav.innerHTML = '<button class="btn" data-pn="-1"' + (pv ? '' : ' disabled') + '>◀ ' + (pv ? esc(pv.pylon) : '') + '</button><span class="muted small">' + (i + 1) + ' / ' + list.length + '</span><button class="btn" data-pn="1"' + (nx ? '' : ' disabled') + '>' + (nx ? esc(nx.pylon) : '') + ' ▶</button>';
+        nav.innerHTML = '<button class="btn" data-step="-1" title="Pylône précédent"' + (pv ? '' : ' disabled') + '>◀ ' + (pv ? esc(pv.pylon) : '') + '</button><span class="muted small">' + (i + 1) + ' / ' + list.length + '</span><button class="btn" data-step="1" title="Pylône suivant"' + (nx ? '' : ' disabled') + '>' + (nx ? esc(nx.pylon) : '') + ' ▶</button>';
         $('ptBody').insertBefore(nav, $('ptBody').firstChild);
-        nav.querySelectorAll('[data-pn]').forEach(function (b) { b.onclick = function () { var g = list[i + +b.getAttribute('data-pn')]; if (g) select(doc, g, true); }; });
+        nav.querySelectorAll('[data-step]').forEach(function (b) { b.onclick = function () { var g = list[i + +b.getAttribute('data-step')]; if (g) select(doc, g, true); }; });
       }
     }
     var acts = [];
     if (f && f.pylon && doc.role !== 'terrain') acts.push(['fiche', '📋 Fiche pylône', 'primary']);
-    if (f && doc.role === 'terrain') acts.push(['tedit', '✎ Modifier', 'primary']);
-    if (!f || f.kind !== 'point' || doc.role !== 'terrain') acts.push(['add', '📍 Ajout terrain ici', '']);
+    if (f && doc.role === 'terrain') acts.push(['editTerrain', '✎ Modifier', 'primary']);
+    if (!f || f.kind !== 'point' || doc.role !== 'terrain') acts.push(['addPoint', '📍 Ajouter un point terrain', '']);
+    if (f && f.kind === 'line') acts.push(['profile', '⛰ Profil en long', '']);
     acts.push(['info', 'Que trouve-t-on ici ?', '']);
-    acts.push(['copy', 'Copier', '']);
-    if (f && doc.editing && doc.role !== 'terrain') { acts.push(['ren', 'Renommer', '']); acts.push(['del', 'Supprimer', 'danger']); }
-    if (f && doc.role === 'terrain') acts.push(['tdel', 'Supprimer', 'danger']);
+    acts.push(['copy', 'Copier les coordonnées', '']);
+    if (f && doc.editing && doc.role !== 'terrain') { acts.push(['rename', 'Renommer', '']); acts.push(['delete', 'Supprimer', 'danger']); }
+    if (f && doc.role === 'terrain') acts.push(['delete', 'Supprimer', 'danger']);
     $('ptActs').innerHTML = acts.map(function (a) { return '<button class="btn ' + a[2] + '" data-act="' + a[0] + '">' + a[1] + '</button>'; }).join('');
     var meta = [];
     if (f) {
       if (f.folder && f.folder.length) meta.push('<b>Dossier :</b> ' + esc(f.folder.join(' › ')));
       (f.data || []).forEach(function (d) { if (d[0] !== 'Photos') meta.push('<b>' + esc(d[0]) + ' :</b> ' + esc(d[1])); });
-      if (f.desc) meta.push(esc(f.desc.length > 600 ? f.desc.slice(0, 600) + '…' : f.desc));
-      if (f.kind === 'line') meta.push('<b>Longueur :</b> ' + U.fmtDist(C.geo.lineLength(f.coords)));
-      if (f.kind === 'poly') meta.push('<b>Surface :</b> ' + U.fmtArea(C.geo.area(f.coords[0])));
+      // pas de redite : la note, la longueur et la surface déjà listées ci-dessus ne sont pas répétées
+      if (f.desc && f.desc !== dataGet(f, 'Note')) meta.push(esc(f.desc.length > 600 ? f.desc.slice(0, 600) + '…' : f.desc));
+      if (f.kind === 'line' && !dataGet(f, 'Longueur')) meta.push('<b>Longueur :</b> ' + U.fmtDist(C.geo.lineLength(f.coords)));
+      if (f.kind === 'poly' && !dataGet(f, 'Surface')) meta.push('<b>Surface :</b> ' + U.fmtArea(C.geo.area(f.coords[0])));
     }
     $('ptMeta').innerHTML = '<div class="meta">' + meta.join('\n') + '</div>' + (f && f.photos && f.photos.length ? '<div class="photos">' + f.photos.map(photoThumb).join('') + '</div>' : '');
     if (f && f.pylon && C.fiches) C.fiches.summaryInto($('ptMeta'), doc, f);
@@ -547,19 +552,19 @@
     }
     // un appui sur la carte avec un calque interrogeable allumé (géologie, environnement, hauteur LiDAR…) affiche tout de suite ce qu'il y a
     if (!f && Object.keys(C.active).some(function (id) { var it = C.ITEMS[id]; return it && it.info && !C.hiddenLayers[id] && (it.special_info || U.isOnline()); })) setTimeout(runInfo, 30);
-    $('ptActs').querySelectorAll('[data-act]').forEach(function (b) {
-      b.onclick = function () {
-        var a = b.getAttribute('data-act');
-        if (a === 'fiche') C.fiches.open(doc, f);
-        if (a === 'info') runInfo();
-        if (a === 'copy') { var t = lat.toFixed(6) + ', ' + lon.toFixed(6); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { U.toast('Coordonnées copiées'); }, function () { U.toast(t, 6000); }); }
-        if (a === 'add') { clearSelection(); C.tools.addTerrain('point', [L.latLng(lat, lon)]); }
-        if (a === 'tedit') C.tools.editTerrain(doc, f);
-        if (a === 'tdel' || a === 'del') C.confirmDlg('Supprimer « ' + (f.name || 'cet élément') + ' » ?', 'Supprimer', true).then(function (y) {
+    U.onAct($('ptActs'), {
+      fiche: function () { C.fiches.ficheDialog(doc, f); },
+      info: runInfo,
+      copy: function () { var t = lat.toFixed(6) + ', ' + lon.toFixed(6); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { U.toast('Coordonnées copiées'); }, function () { U.toast(t, 6000); }); },
+      addPoint: function () { clearSelection(); C.tools.addTerrain('point', [L.latLng(lat, lon)]); },
+      profile: function () { C.tools.profile(f.coords); },
+      editTerrain: function () { C.tools.editTerrain(doc, f); },
+      'delete': function () {
+        C.confirmDialog('Supprimer « ' + (f.name || 'cet élément') + ' » ?', 'Supprimer', true).then(function (y) {
           if (!y) return; doc.feats = doc.feats.filter(function (x) { return x !== f; }); markDirty(doc); render(doc); clearSelection();
         });
-        if (a === 'ren') C.promptDlg('Renommer', 'Nouveau nom', f.name || '', 'Renommer').then(function (n) { if (!n) return; f.name = n; C.tagPylon(f); markDirty(doc); render(doc); select(doc, f); });
-      };
+      },
+      rename: function () { C.promptDialog('Renommer', 'Nouveau nom', f.name || '', 'Renommer').then(function (n) { if (!n) return; f.name = n; C.tagPylon(f); markDirty(doc); render(doc); select(doc, f); }); }
     });
     $('pointSheet').classList.add('open');
     if (!U.isDesktop()) C.closePanel();
@@ -615,7 +620,7 @@
     if (!doc) return;
     var isNew = !doc.id;
     var name = isNew ? U.baseName(doc.name) + '.kmz' : U.baseName(doc.name).replace(/ \(modifié \d{4}-\d{2}-\d{2}\)$/, '') + ' (modifié ' + U.isoDay() + ').kmz';
-    var dest = doc.parent && doc.parent.id ? Promise.resolve(doc.parent) : C.browseDrive({ mode: 'folder' });
+    var dest = doc.parent && doc.parent.id ? Promise.resolve(doc.parent) : C.driveDialog({ mode: 'folder' });
     return dest.then(function (folder) {
       if (!folder) return;
       U.busy(true, 'Enregistrement de « ' + name + ' »…');
@@ -626,7 +631,7 @@
         doc.dirty = false;
         if (isNew || doc.source !== 'drive') { doc.id = j.fichier.id; doc.source = 'drive'; doc.parent = { id: folder.id, name: folder.name }; }
         else { doc.id = j.fichier.id; doc.name = name; }
-        C.deleteData('doc-' + doc.uid); saveOpenList(); updateChip(); C.refreshTab('outils');
+        C.deleteData('doc-' + doc.uid); saveOpenList(); updateChip(); C.refreshTab('chantier');
         U.toast('Enregistré sur le Drive : « ' + name + ' »', 4000);
       }).catch(function (e) { U.busy(false); U.toast('Échec de l\'enregistrement : ' + (e.message || e), 6000); });
     });
@@ -657,7 +662,7 @@
     if (m[chantierKey]) return Promise.resolve(m[chantierKey]);
     return C.postPorte('dossierPhotos', { chantier: chantierName }).then(function (j) {
       m[chantierKey] = { id: j.dossier.id, chemin: j.dossier.chemin }; U.storeJSON('photoFolders', m);
-      U.toast('Photos rangées dans « ' + j.dossier.chemin + ' » (modifiable dans Outils)', 5000);
+      U.toast('Photos rangées dans « ' + j.dossier.chemin + ' » (dossier modifiable dans l\'onglet Chantier)', 5000);
       return m[chantierKey];
     });
   };

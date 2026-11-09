@@ -1,4 +1,4 @@
-/* Carto chantiers — fiches pylônes (Google Sheet par chantier), remplissage automatique, import de tableaux. */
+/* Carto chantiers — fiches pylônes (un Google Sheet par chantier) : formulaire, remplissage automatique, import de tableaux, modèle à remplir. */
 (function () {
   'use strict';
   var C = window.Carto, U = C.u, $ = C.$, esc = U.esc, F = C.fiche;
@@ -57,7 +57,7 @@
     var st = FS[key]; if (!st) return Promise.resolve();
     var doc = docByKey(key);
     var nums = Object.keys(st.dirty); if (!nums.length) return Promise.resolve();
-    if (doc && doc.source !== 'drive') return Promise.reject(new Error('Enregistre d\'abord le chantier sur le Drive (Outils → Modifier → Enregistrer)'));
+    if (doc && doc.source !== 'drive') return Promise.reject(new Error('Enregistre d\'abord le chantier sur le Drive (onglet Chantier → Enregistrer une version)'));
     var listes = {};
     F.FIELDS.forEach(function (f) { if (f.t === 'choice') listes[f.label] = f.o; });
     var lignes = nums.map(function (n) {
@@ -75,7 +75,7 @@
       st.sheetId = j.fiches.id; st.url = j.fiches.url;
       nums.forEach(function (n) { if (!JSON.stringify(st.rows[n]).match(/local:/)) delete st.dirty[n]; });
       saveLocal(key);
-      C.refreshTab('outils');
+      C.refreshTab('chantier');
     });
   };
   api.photoUploaded = function (key, photoUid, ph) {
@@ -107,26 +107,26 @@
 
   /* ======================= Formulaire ======================= */
   var pending = []; // photos ajoutées pendant l'édition
-  api.open = function (doc, f) {
+  api.ficheDialog = function (doc, f) {
     var num = f.pylon, r = Object.assign({}, api.rowOf(doc, num) || {});
     if (!r['Auteur']) r['Auteur'] = U.store('auteur') || 'Frédéric FATTORE';
     pending = [];
     var openSec = U.storeJSON('ficheOpen') || { id: true };
-    var html = '<div class="seg" id="fcStat">' + ['À visiter', 'Visité', 'Validé'].map(function (s) { return '<button data-s="' + s + '"' + (r['Statut'] === s ? ' class="on"' : '') + '>' + s + '</button>'; }).join('') + '</div>' +
-      '<div class="row2" style="margin-top:10px"><button class="btn" id="fcAuto">⚙ Remplir automatiquement</button><span class="muted small" id="fcAutoMsg"></span></div>' +
+    var html = '<div class="seg" id="fcStat">' + ['À visiter', 'Visité', 'Validé'].map(function (s) { return '<button data-val="' + s + '"' + (r['Statut'] === s ? ' class="on"' : '') + '>' + s + '</button>'; }).join('') + '</div>' +
+      '<div class="row fc-auto"><button class="btn" id="fcAuto">⚙ Remplir automatiquement</button><span class="muted small" id="fcAutoMsg"></span></div>' +
       F.SECTIONS.filter(function (s) { return s.id !== 'suivi'; }).concat([F.SECTIONS.filter(function (s) { return s.id === 'suivi'; })[0]]).map(function (s) {
-        return '<div class="fsec' + (openSec[s.id] ? ' open' : '') + '" data-sec="' + s.id + '"><button type="button"><span>' + esc(s.label) + '</span><span class="fill" data-fill="' + s.id + '"></span><span class="chev">›</span></button><div class="fbody">' +
+        return '<div class="fsec' + (openSec[s.id] ? ' open' : '') + '" data-sec="' + s.id + '"><button type="button"><span>' + esc(s.label) + '</span><span class="fill" data-fill="' + s.id + '"></span><span class="chev">›</span></button><div class="fbody cols">' +
           s.fields.filter(function (fd) { return fd.k !== 'statut'; }).map(function (fd) { return fieldHtml(fd, r[fd.label]); }).join('') + '</div></div>';
       }).join('');
     var st = store(C.docKey(doc));
     if (st.extras.length) {
-      html += '<div class="fsec" data-sec="extras"><button type="button"><span>Infos importées</span><span class="chev">›</span></button><div class="fbody">' +
-        st.extras.map(function (h) { return '<label class="field"><span>' + esc(h.slice(F.IMPORT_PREFIX.length)) + '</span><input type="text" data-x="' + esc(h) + '" value="' + esc(r[h] || '') + '"></label>'; }).join('') + '</div></div>';
+      html += '<div class="fsec" data-sec="extras"><button type="button"><span>Infos importées</span><span class="chev">›</span></button><div class="fbody cols">' +
+        st.extras.map(function (h) { return '<label class="field"><span>' + esc(h.slice(F.IMPORT_PREFIX.length)) + '</span><input type="text" data-extra="' + esc(h) + '" value="' + esc(r[h] || '') + '"></label>'; }).join('') + '</div></div>';
     }
-    if (st.url) html += '<p class="muted small" style="margin-top:12px">Tableau des fiches : <a href="' + esc(st.url) + '" target="_blank" rel="noopener">ouvrir dans Google Sheets</a></p>';
+    if (st.url) html += '<p class="muted small sec-foot">Toutes les fiches du chantier : <a href="' + esc(st.url) + '" target="_blank" rel="noopener">ouvrir le Google Sheet ↗</a></p>';
     var plist = C.pylonsOf(doc), pi = plist.indexOf(f), prev = plist[pi - 1], next = plist[pi + 1];
     var snapshot = null;
-    var d = C.openDlg({ title: 'Fiche pylône ' + num + ' — ' + U.baseName(doc.name), body: html,
+    var d = C.openDialog({ title: 'Fiche pylône ' + num + ' — ' + U.baseName(doc.name), wide: true, body: html,
       foot: '<button class="btn" id="fcCancel">Annuler</button>' +
         (prev ? '<button class="btn" id="fcPrev" title="Enregistrer et passer au pylône ' + esc(prev.pylon) + '">◀ ' + esc(prev.pylon) + '</button>' : '') +
         (next ? '<button class="btn" id="fcNext" title="Enregistrer et passer au pylône ' + esc(next.pylon) + '">' + esc(next.pylon) + ' ▶</button>' : '') +
@@ -134,22 +134,22 @@
       guard: function () { return pending.length > 0 || JSON.stringify(currentVals()) !== snapshot; } });
     var body = d.body;
     function currentVals() {
-      var v = readFields(body), stEl = body.querySelector('#fcStat .on'); v['Statut'] = stEl ? stEl.getAttribute('data-s') : '';
-      body.querySelectorAll('[data-x]').forEach(function (i) { v[i.getAttribute('data-x')] = i.value; });
+      var v = readFields(body); v['Statut'] = U.picked(body.querySelector('#fcStat'));
+      body.querySelectorAll('[data-extra]').forEach(function (i) { v[i.getAttribute('data-extra')] = i.value; });
       return v;
     }
     // sections
     body.querySelectorAll('.fsec > button').forEach(function (b) {
       b.onclick = function () { var s = b.parentNode; s.classList.toggle('open'); openSec[s.getAttribute('data-sec')] = s.classList.contains('open'); U.storeJSON('ficheOpen', openSec); };
     });
-    // statut
-    body.querySelectorAll('#fcStat [data-s]').forEach(function (b) {
+    // statut : un nouvel appui sur le statut choisi l'efface
+    body.querySelectorAll('#fcStat [data-val]').forEach(function (b) {
       b.onclick = function () {
         var on = !b.classList.contains('on');
-        body.querySelectorAll('#fcStat [data-s]').forEach(function (x) { x.classList.remove('on'); });
+        body.querySelectorAll('#fcStat [data-val]').forEach(function (x) { x.classList.remove('on'); });
         if (on) b.classList.add('on');
-        var dv = body.querySelector('[data-k="date_visite"]');
-        if (on && b.getAttribute('data-s') !== 'À visiter' && dv && !dv.value) dv.value = U.isoDay();
+        var dv = body.querySelector('[data-field="date_visite"]');
+        if (on && b.getAttribute('data-val') !== 'À visiter' && dv && !dv.value) dv.value = U.isoDay();
       };
     });
     wireFields(body, doc, num);
@@ -164,7 +164,7 @@
     d.q('#fcSave').onclick = function () { save(null); };
     function save(goTo) {
       var unchanged = !pending.length && JSON.stringify(currentVals()) === snapshot;
-      if (unchanged && goTo) { C.closeDlg(1); C.selectFeature(doc, goTo, true); api.open(doc, goTo); return; }
+      if (unchanged && goTo) { C.closeDialog(1); C.selectFeature(doc, goTo, true); api.ficheDialog(doc, goTo); return; }
       var busyPh = body.querySelectorAll('.ph.wait').length;
       if (busyPh) { U.toast('Photo en cours de préparation…', 1500); setTimeout(function () { save(goTo); }, 600); return; }
       var vals = currentVals();
@@ -173,33 +173,34 @@
       pending.forEach(function (p) { C.sync.add({ t: 'photo', key: C.docKey(doc), photo: p.key, name: p.name, target: 'fiche', chantier: U.baseName(doc.name) }); });
       pending = [];
       setRow(doc, num, vals);
-      C.closeDlg(1); C.renderDoc(doc);
+      C.closeDialog(1); C.renderDoc(doc);
       U.toast('Fiche du pylône ' + num + ' enregistrée' + (U.isOnline() ? '' : ' (envoi au retour du réseau)'), 2500);
-      if (goTo) { C.selectFeature(doc, goTo, true); api.open(doc, goTo); }
+      if (goTo) { C.selectFeature(doc, goTo, true); api.ficheDialog(doc, goTo); }
       else if (C.selected() && C.selected().f === f) C.selectFeature(doc, f);
     }
   };
+  // Champs courts (texte, nombre, date) : une colonne chacun ; choix, textes longs et photos : toute la largeur (.full)
   function fieldHtml(fd, v) {
     v = v == null ? '' : String(v);
     var short = fd.label.replace(/^[^:]+ : /, ''); short = short.charAt(0).toUpperCase() + short.slice(1);
     var lab = '<span>' + esc(short) + (fd.auto ? '<span class="auto">⚙ auto</span>' : '') + '</span>';
     if (fd.t === 'choice' || fd.t === 'multi') {
       var sel = fd.t === 'multi' ? v.split(/\s*,\s*/) : [v];
-      return '<div class="field" data-k="' + fd.k + '" data-t="' + fd.t + '">' + lab + '<div class="chips">' + fd.o.map(function (o) { return '<button type="button" data-o="' + esc(o) + '"' + (sel.indexOf(o) >= 0 ? ' class="on"' : '') + '>' + esc(o) + '</button>'; }).join('') + '</div></div>';
+      return '<div class="field full" data-field="' + fd.k + '" data-type="' + fd.t + '">' + lab + '<div class="chips">' + fd.o.map(function (o) { return '<button type="button" data-val="' + esc(o) + '"' + (sel.indexOf(o) >= 0 ? ' class="on"' : '') + '>' + esc(o) + '</button>'; }).join('') + '</div></div>';
     }
-    if (fd.t === 'long') return '<label class="field">' + lab + '<textarea data-k="' + fd.k + '">' + esc(v) + '</textarea></label>';
+    if (fd.t === 'long') return '<label class="field full">' + lab + '<textarea data-field="' + fd.k + '">' + esc(v) + '</textarea></label>';
     if (fd.t === 'photos') {
       var items = v ? v.split(/\n/).filter(Boolean) : [];
-      return '<div class="field" data-k="' + fd.k + '" data-t="photos" data-v="' + esc(v) + '">' + lab + '<div class="photos">' + items.map(function (it) {
+      return '<div class="field full" data-field="' + fd.k + '" data-type="photos" data-value="' + esc(v) + '">' + lab + '<div class="photos">' + items.map(function (it) {
         var url = (it.split(' | ')[1] || ''); return url ? '<a class="ph" target="_blank" rel="noopener" href="' + esc(url) + '">☁</a>' : '<span class="ph">⏳</span>';
-      }).join('') + '<button type="button" class="ph add" data-addph>＋</button></div></div>';
+      }).join('') + '<button type="button" class="ph add" data-act="addPhoto" title="Prendre ou choisir des photos">📷</button></div></div>';
     }
     var type = fd.t === 'number' ? 'number' : fd.t === 'date' ? 'date' : 'text';
-    return '<label class="field">' + lab + '<input type="' + type + '" ' + (type === 'number' ? 'inputmode="decimal" step="any" ' : '') + 'data-k="' + fd.k + '" value="' + esc(v) + '"></label>';
+    return '<label class="field">' + lab + '<input type="' + type + '" ' + (type === 'number' ? 'inputmode="decimal" step="any" ' : '') + 'data-field="' + fd.k + '" value="' + esc(v) + '"></label>';
   }
   function wireFields(body, doc, num) {
     body.querySelectorAll('.chips').forEach(function (ch) {
-      var multi = ch.parentNode.getAttribute('data-t') === 'multi';
+      var multi = ch.parentNode.getAttribute('data-type') === 'multi';
       ch.querySelectorAll('button').forEach(function (b) {
         b.onclick = function () {
           if (multi) b.classList.toggle('on');
@@ -207,13 +208,13 @@
         };
       });
     });
-    body.querySelectorAll('[data-addph]').forEach(function (b) {
+    body.querySelectorAll('[data-act="addPhoto"]').forEach(function (b) {
       b.onclick = function () {
         U.pickFiles('image/*').then(function (files) {
           files.forEach(function (file) {
             var key = U.uid(), name = 'P' + (num || '') + '_' + U.isoDay() + '_' + key.slice(-4) + '.jpg';
             var holder = b.parentNode.parentNode;
-            holder.setAttribute('data-v', (holder.getAttribute('data-v') ? holder.getAttribute('data-v') + '\n' : '') + 'local:' + key);
+            holder.setAttribute('data-value', (holder.getAttribute('data-value') ? holder.getAttribute('data-value') + '\n' : '') + 'local:' + key);
             var s = document.createElement('span'); s.className = 'ph wait'; s.textContent = '…'; b.parentNode.insertBefore(s, b);
             U.compressImage(file).then(function (r) {
               return C.sync.putBlob(key, r.blob).then(function () {
@@ -230,10 +231,10 @@
     var vals = {};
     F.FIELDS.forEach(function (fd) {
       if (fd.k === 'statut') return;
-      var el = body.querySelector('[data-k="' + fd.k + '"]'); if (!el) return;
-      var t = el.getAttribute('data-t');
-      if (t === 'choice' || t === 'multi') vals[fd.label] = Array.prototype.map.call(el.querySelectorAll('.chips .on'), function (b) { return b.getAttribute('data-o'); }).join(', ');
-      else if (t === 'photos') vals[fd.label] = el.getAttribute('data-v') || '';
+      var el = body.querySelector('[data-field="' + fd.k + '"]'); if (!el) return;
+      var t = el.getAttribute('data-type');
+      if (t === 'choice' || t === 'multi') vals[fd.label] = Array.prototype.map.call(el.querySelectorAll('.chips .on'), function (b) { return b.getAttribute('data-val'); }).join(', ');
+      else if (t === 'photos') vals[fd.label] = el.getAttribute('data-value') || '';
       else vals[fd.label] = el.value;
     });
     return vals;
@@ -248,7 +249,7 @@
   }
 
   /* ---- Remplissage automatique (commune, parcelle, portée, environnement) ---- */
-  function setVal(body, k, v) { var el = body.querySelector('[data-k="' + k + '"]'); if (el && !el.value && v) { el.value = v; } }
+  function setVal(body, k, v) { var el = body.querySelector('[data-field="' + k + '"]'); if (el && !el.value && v) { el.value = v; } }
   function geomParam(lat, lon) { return encodeURIComponent(JSON.stringify({ type: 'Point', coordinates: [lon, lat] })); }
   function autoFill(doc, f, body) {
     var lat = f.coords[0], lon = f.coords[1], msg = body.querySelector('#fcAutoMsg');
@@ -262,7 +263,7 @@
       fetch('https://apicarto.ign.fr/api/cadastre/parcelle?geom=' + geomParam(lat, lon)).then(function (r) { return r.json(); }).then(function (j) {
         var p = j.features && j.features[0] && j.features[0].properties; if (p) setVal(body, 'parcelle', 'Section ' + (p.section || '?') + ' n° ' + (p.numero || '?') + (p.contenance ? ' (' + p.contenance + ' m²)' : ''));
       }),
-      envAt(lat, lon).then(function (t) { if (t) { var el = body.querySelector('[data-k="nota_env"]'); if (el && !el.value) el.value = t; } })
+      envAt(lat, lon).then(function (t) { if (t) { var el = body.querySelector('[data-field="nota_env"]'); if (el && !el.value) el.value = t; } })
     ];
     Promise.all(jobs.map(function (p) { return p.catch(function () {}); })).then(function () { msg.textContent = 'Champs vides complétés.'; updateFill(body); });
   }
@@ -298,20 +299,22 @@
     }
     return 'extra';
   }
-  api.importWizard = function (opts) {
+  // Une seule entrée pour tout ce qui vient d'un tableau : le fichier, le Google Sheet, et le modèle à remplir.
+  api.importDialog = function (opts) {
     opts = opts || {};
-    C.choiceDlg('Importer un tableau', [
-      { v: 'device', label: 'Fichier de l\'appareil', hint: 'CSV, Excel (.xlsx, .xls) ou ODS' },
-      { v: 'drive', label: 'Google Sheet ou CSV du Drive', hint: 'Parcourir ton Drive' },
-      { v: 'model', label: 'Télécharger le modèle à remplir', hint: 'Excel avec toutes les colonnes de la fiche + mode d\'emploi' }
+    C.choiceDialog(opts.createDoc ? 'Chantier depuis un tableau' : 'Importer un tableau', [
+      { v: 'device', ico: '📱', label: 'Fichier de l\'appareil', hint: 'CSV, Excel (.xlsx, .xls) ou ODS' },
+      { v: 'drive', ico: '☁', label: 'Google Sheet ou CSV du Drive', hint: 'Parcourir ton Drive' },
+      { v: 'model', ico: '⬇', label: 'Obtenir le modèle à remplir', hint: 'Excel avec toutes les colonnes de la fiche et le mode d\'emploi' }
     ]).then(function (src) {
       if (!src) return;
       if (src === 'model') return api.downloadTemplate();
       if (src === 'device') return U.pickFile('.csv,.txt,.xlsx,.xls,.ods').then(function (file) { if (file) api.importFile(file, opts); });
-      var load = src === 'device'
-        ? U.pickFile('.csv,.txt,.xlsx,.xls,.ods').then(function (file) { if (!file) return null; U.busy(true, 'Lecture du tableau…'); return U.loadScript('vendor/xlsx.full.min.js').then(function () { return C.formats.readTable(file); }); })
-        : C.browseDrive({ mode: 'table' }).then(function (f) { if (!f) return null; U.busy(true, 'Lecture du tableau…'); return C.callPorte('lireTableur', { id: f.id }).then(function (j) { return j.valeurs; }); });
-      return load.then(function (rows) { U.busy(false); if (rows) mapping(rows, opts); }).catch(function (e) { U.busy(false); U.toast('Lecture impossible : ' + (e.message || e), 6000); });
+      return C.driveDialog({ mode: 'table' }).then(function (f) {
+        if (!f) return null;
+        U.busy(true, 'Lecture du tableau…');
+        return C.callPorte('lireTableur', { id: f.id }).then(function (j) { return j.valeurs; });
+      }).then(function (rows) { U.busy(false); if (rows) mapping(rows, opts); }).catch(function (e) { U.busy(false); U.toast('Lecture impossible : ' + (e.message || e), 6000); });
     });
   };
   api.importFile = function (file, opts) {
@@ -326,19 +329,19 @@
     var head = rows[0].map(function (h) { return String(h).trim(); }), data = rows.slice(1);
     var guesses = head.map(guess);
     var chantiers = C.docs.filter(function (d) { return d.role === 'chantier'; }), act = C.activeDoc();
-    var html = '<p class="muted">' + data.length + ' ligne(s), ' + head.length + ' colonne(s). Vérifie où va chaque colonne :</p>' +
+    var html = '<p class="muted">' + data.length + ' ligne(s), ' + head.length + ' colonne(s). Vérifie où va chaque colonne :</p><div class="cols">' +
       head.map(function (h, i) {
         var sample = data.slice(0, 2).map(function (r) { return String(r[i] == null ? '' : r[i]).slice(0, 30); }).filter(Boolean).join(' · ');
-        return '<label class="field"><span>' + esc(h || '(colonne ' + (i + 1) + ')') + (sample ? ' <i style="font-weight:400">— ex. ' + esc(sample) + '</i>' : '') + '</span><select data-col="' + i + '">' +
+        return '<label class="field"><span>' + esc(h || '(colonne ' + (i + 1) + ')') + (sample ? ' <i class="sample">— ex. ' + esc(sample) + '</i>' : '') + '</span><select data-col="' + i + '">' +
           TARGETS.map(function (t) { return '<option value="' + esc(t[0]) + '"' + (t[0] === guesses[i] ? ' selected' : '') + '>' + esc(t[1]) + '</option>'; }).join('') + '</select></label>';
-      }).join('') +
-      '<div class="sep"></div><label class="field"><span>Chantier concerné</span><select id="imDoc">' +
+      }).join('') + '</div>' +
+      '<div class="sep"></div><div class="cols"><label class="field"><span>Chantier concerné</span><select id="imDoc">' +
       chantiers.map(function (d, i) { return '<option value="' + i + '"' + (d === act ? ' selected' : '') + '>' + esc(U.baseName(d.name)) + '</option>'; }).join('') +
       '<option value="new"' + (opts.createDoc || !chantiers.length ? ' selected' : '') + '>➕ Nouveau chantier créé depuis ce tableau</option></select></label>' +
-      '<label class="field"><span>Cases déjà remplies dans les fiches</span><select id="imMode"><option value="fill">Compléter seulement les cases vides</option><option value="replace">Remplacer par les valeurs du tableau</option></select></label>' +
-      '<label class="check"><input type="checkbox" id="imCreate" checked><span class="grow">Créer les pylônes absents du fichier (si le tableau donne leurs coordonnées)</span></label>' +
+      '<label class="field"><span>Cases déjà remplies dans les fiches</span><select id="imMode"><option value="fill">Compléter seulement les cases vides</option><option value="replace">Remplacer par les valeurs du tableau</option></select></label></div>' +
+      '<label class="check"><input type="checkbox" id="imCreate" checked><span class="grow">Créer les pylônes absents du chantier (si le tableau donne leurs coordonnées)</span></label>' +
       '<div id="imPrev" class="card"></div>';
-    var d = C.openDlg({ title: 'Importer un tableau', body: html, foot: '<button class="btn" id="imCancel">Annuler</button><button class="btn primary push" id="imGo">Importer</button>' });
+    var d = C.openDialog({ title: 'Importer un tableau', wide: true, body: html, foot: '<button class="btn" id="imCancel">Annuler</button><button class="btn primary push" id="imGo">Importer</button>' });
     function plan() {
       var map = {}; d.qa('[data-col]').forEach(function (s) { map[+s.getAttribute('data-col')] = s.value; });
       var docSel = d.q('#imDoc').value, doc = docSel === 'new' ? null : chantiers[+docSel];
@@ -372,11 +375,11 @@
         (p.noCoord ? ', <b>' + p.noCoord + ' inconnus sans coordonnées</b> (fiche créée quand même)' : '') + (p.noNum ? ' · ' + p.noNum + ' ligne(s) sans N° ignorée(s)' : '') + '.</div>';
     }
     d.body.addEventListener('change', preview); preview();
-    d.q('#imCancel').onclick = function () { C.closeDlg(1); };
+    d.q('#imCancel').onclick = function () { C.closeDialog(1); };
     d.q('#imGo').onclick = function () {
       var p = plan(); if (!p.rows.length) { U.toast('Choisis la colonne du N° de pylône'); return; }
       var doc = p.doc, replace = d.q('#imMode').value === 'replace', create = d.q('#imCreate').checked;
-      var go = doc ? Promise.resolve(doc) : C.promptDlg('Nouveau chantier', 'Nom du chantier', 'Chantier importé ' + U.isoDay(), 'Créer').then(function (n) {
+      var go = doc ? Promise.resolve(doc) : C.promptDialog('Nouveau chantier', 'Nom du chantier', 'Chantier importé ' + U.isoDay(), 'Créer').then(function (n) {
         if (!n) return null;
         return C.createDocFromPoints(n);
       });
@@ -397,8 +400,8 @@
           if (Object.keys(vals).length || !st.rows[norm(o.num)]) setRow(doc, label, vals);
         });
         if (added) { C.markDirty(doc); }
-        C.renderDoc(doc); C.closeDlg(1); C.fitDocs(doc);
-        U.toast(p.rows.length + ' fiche(s) importée(s)' + (added ? ', ' + added + ' pylône(s) créé(s) — pense à enregistrer une version du chantier' : ''), 6000);
+        C.renderDoc(doc); C.closeDialog(1); C.fitDocs(doc);
+        U.toast(p.rows.length + ' fiche(s) importée(s)' + (added ? ', ' + added + ' pylône(s) créé(s) — pense à enregistrer une version (onglet Chantier)' : ''), 6000);
       });
     };
   }

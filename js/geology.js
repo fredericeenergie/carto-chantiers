@@ -120,9 +120,9 @@
     return Promise.all([G.lithoAt(lat, lon).catch(function () { return null; }), G.sheetAt(lat, lon).catch(function () { return null; })]).then(function (r) {
       var li = r[0], sh = r[1], h = '<div class="card"><h4>Géologie</h4>';
       if (li) h += '<div><span class="sw"><i style="background:' + li.color + '"></i></span><b>' + U.esc(li.descr) + '</b> <span class="muted small">— ' + U.esc(li.type.toLowerCase()) + ' (nature du sous-sol simplifiée, 1/1 000 000)</span></div>';
-      if (sh) h += '<div style="margin-top:6px">Feuille géologique 1/50 000 <b>n° ' + U.esc(sh.numero) + ' ' + U.esc(sh.nom) + '</b><br><a href="' + sh.notice + '" target="_blank" rel="noopener">Notice de la feuille (PDF BRGM) ↗</a> <span class="muted small">— description de chaque code (Fz, e6, j2…)</span></div>';
+      if (sh) h += '<div class="mt">Feuille géologique 1/50 000 <b>n° ' + U.esc(sh.numero) + ' ' + U.esc(sh.nom) + '</b><br><a href="' + sh.notice + '" target="_blank" rel="noopener">Notice de la feuille (PDF BRGM) ↗</a> <span class="muted small">— description de chaque code (Fz, e6, j2…)</span></div>';
       if (!li && !sh) h += '<p class="muted">Hors de la France métropolitaine.</p>';
-      h += '<p class="muted small" style="margin:6px 0 0">Lecture des codes : voir la légende du calque « Carte géologique » (onglet Calques).</p></div>';
+      h += '<p class="muted small mt">Lecture des codes : voir la légende du calque « Carte géologique » (onglet Calques).</p></div>';
       return h;
     });
   };

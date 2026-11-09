@@ -221,7 +221,7 @@
       ['   Si le pylône n\'existe pas encore dans le fichier du chantier, il sera créé à ces coordonnées.'],
       ['3. Pour les champs à choix, utiliser les valeurs de l\'onglet « Listes » (plusieurs valeurs : séparées par des virgules).'],
       ['4. Laisser vide ce qui n\'est pas connu. Les colonnes que tu ajoutes toi-même sont gardées dans « Infos importées ».'],
-      ['5. Dans l\'appli : Export → Importer des données → choisir ce fichier (téléphone, ordinateur ou Drive).']
+      ['5. Dans l\'appli : onglet Chantier → Importer un tableau → choisir ce fichier (téléphone, ordinateur ou Drive).']
     ];
     var wh = XLSX.utils.aoa_to_sheet(help); wh['!cols'] = [{ wch: 110 }];
     XLSX.utils.book_append_sheet(wb, wh, 'Mode d\'emploi');
