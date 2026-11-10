@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   var C = window.Carto;
-  C.VERSION = 'v2.6.0';
+  C.VERSION = 'v2.6.1';
   var $ = C.$ = function (id) { return document.getElementById(id); };
 
   /* ======================= Utilitaires ======================= */
