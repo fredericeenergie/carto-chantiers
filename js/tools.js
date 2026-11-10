@@ -207,7 +207,7 @@
     // dictée : le texte va dans la note, l'audio est rangé avec l'ajout
     C.voice.attach(d.body, function (audio) {
       var key = U.uid(), now = new Date();
-      var name = U.baseName(chantier.name) + '_note-vocale_' + U.isoDay() + '_' + String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + '.' + audio.ext;
+      var name = U.baseName(chantier.name) + '_note-vocale_' + U.isoDay() + '_' + String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0') + '.' + audio.ext; // à la seconde : deux notes de la même minute gardent chacune leur nom
       newAudios.push({ a: { key: key, name: name }, file: audio.blob });
       d.q('#taAu').insertAdjacentHTML('beforeend', '<span class="btn audio-wait">🎤 ' + C.voice.duration(audio.seconds) + ' · à envoyer</span>');
     });
